@@ -1,0 +1,113 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Virtual MRT/T_op Room",
+        "description": "Enter the details of the room to calculate MRT and Operative Temperature.",
+        "data": {
+          "name": "Room Name",
+          "air_temp_source": "Room Air Temperature Sensor",
+          "weather_entity": "Weather Entity",
+          "room_profile": "Room Profile",
+          "orientation": "Main Window Orientation",
+          "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor (Optional)"
+        }
+      }
+    },
+    "options": {
+      "step": {
+        "init": {
+          "title": "Configure Virtual MRT/T_op",
+          "description": "Adjust core settings of the room.",
+          "data": {
+            "orientation": "Main Window Orientation",
+            "weather_entity": "Weather Entity",
+            "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor (Optional)"
+          }
+        }
+      }
+    }
+  },
+  "selector": {
+    "room_profile": {
+      "options": {
+        "one_wall_large_window": "1 ext wall, large window",
+        "two_wall_large_window": "2 ext walls, large window",
+        "attic": "Top floor (tilted/high gain)",
+        "topfloor_vert_small_window": "Top floor (vert/small win)",
+        "topfloor_vert_medium_window": "Top floor (vert/med win)",
+        "topfloor_two_walls_cavity": "Top floor (2 walls/cavity)",
+        "topfloor_cold_adjacent": "Top floor (cold adjacent)",
+        "two_wall_small_window": "2 ext walls, small window",
+        "one_wall_small_window": "1 ext wall, small window",
+        "basement": "Basement / semi-basement",
+        "one_wall_cold_adjacent": "1 ext wall, cold adjacent",
+        "corner_cold_adjacent": "Corner room, cold adjacent",
+        "interior": "Interior room",
+        "interior_cold_adjacent": "Interior, cold adjacent"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "mrt": {
+        "name": "Mean Radiant Temperature"
+      },
+      "operative_temperature": {
+        "name": "Operative Temperature"
+      }
+    },
+    "number": {
+      "exterior_envelope_ratio": {
+        "name": "Exterior Envelope Ratio"
+      },
+      "window_share": {
+        "name": "Window Share"
+      },
+      "insulation_loss_factor": {
+        "name": "Insulation Loss Factor"
+      },
+      "solar_gain_factor": {
+        "name": "Solar Gain Factor"
+      },
+      "thermal_alpha": {
+        "name": "Thermal Smoothing Factor"
+      }
+    },
+    "select": {
+      "profile": {
+        "name": "Profile",
+        "state": {
+          "one_wall_large_window": "1 ext wall, large window",
+          "two_wall_large_window": "2 ext walls, large window",
+          "attic": "Top floor (tilted/high gain)",
+          "topfloor_vert_small_window": "Top floor (vert/small win)",
+          "topfloor_vert_medium_window": "Top floor (vert/med win)",
+          "topfloor_two_walls_cavity": "Top floor (2 walls/cavity)",
+          "topfloor_cold_adjacent": "Top floor (cold adjacent)",
+          "two_wall_small_window": "2 ext walls, small window",
+          "one_wall_small_window": "1 ext wall, small window",
+          "basement": "Basement / semi-basement",
+          "one_wall_cold_adjacent": "1 ext wall, cold adjacent",
+          "corner_cold_adjacent": "Corner room, cold adjacent",
+          "interior": "Interior room",
+          "interior_cold_adjacent": "Interior, cold adjacent",
+          "custom": "Unsaved Custom Profile"
+        }
+      }
+    },
+    "text": {
+      "profile_name": {
+        "name": "Custom Profile Name"
+      }
+    },
+    "button": {
+      "save_profile": {
+        "name": "Save Custom Profile"
+      },
+      "delete_profile": {
+        "name": "Delete Custom Profile"
+      }
+    }
+  }
+}

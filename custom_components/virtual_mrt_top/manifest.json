@@ -1,0 +1,11 @@
+{
+    "domain": "virtual_mrt_top",
+    "name": "Virtual MRT / T_op",
+    "version": "0.1.0",
+    "documentation": "https://github.com/baudneo/hass_virtual_mrt",
+    "dependencies": [],
+    "codeowners": ["@baudneo", "@Ecronika"],
+    "requirements": [],
+    "iot_class": "local_polling",
+    "config_flow": true
+  }

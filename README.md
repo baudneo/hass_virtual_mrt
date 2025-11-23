@@ -141,3 +141,8 @@ The Mean Radiant Temperature ($\text{MRT}_{\text{final}}$) calculation is a thre
 
 4.  **Operative Temperature ($T_{op}$):** The final reported temperature is the average, assuming low air speed:
     $$T_{\text{op}} = \frac{T_{\text{air}} + \text{MRT}_{\text{final}}}{2}$$
+
+>[!NOTE]
+> IDK why GH isnt rendering some of the mathematical equations properly... they look fine in the jetbrains markdown preview.
+
+![example diagram](./docs/assets/example.png)

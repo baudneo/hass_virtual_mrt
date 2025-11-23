@@ -141,22 +141,3 @@ The Mean Radiant Temperature ($\text{MRT}_{\text{final}}$) calculation is a thre
 
 4.  **Operative Temperature ($T_{op}$):** The final reported temperature is the average, assuming low air speed:
     $$T_{\text{op}} = \frac{T_{\text{air}} + \text{MRT}_{\text{final}}}{2}$$
-
-
-
-# TEST
-
-1.  **Instantaneous Calculation ($\text{MRT}_{\text{calc}}$):** The core physics model determines the raw temperature jump using a steady-state energy balance equation.
-    <br>
-    $$\text{MRT}_{\text{calc}} = T_{\text{air}} - \underbrace{\text{Loss}_{\text{term}}}_{\text{Heat escaping outside}} + \underbrace{\text{Solar}_{\text{term}}}_{\text{Heat entering windows}}$$
-    <br>
-
-2.  **Clamping:** The raw result is checked against dynamic, physically plausible bounds based on the current outdoor and indoor temperatures. The result is $\text{MRT}_{\text{clamped}}$.
-
-3.  **Thermal Smoothing (EMA):** The clamped value is smoothed using the Exponential Moving Average formula, where $\alpha$ is the smoothing factor read from your input entity:
-    <br>
-    $$\text{MRT}_{\text{final}} = (1 - \alpha) \times \text{MRT}_{\text{prev}} + \alpha \times \text{MRT}_{\text{clamped}}$$
-    <br>
-
-4.  **Operative Temperature ($T_{op}$):** The final reported temperature is the average, assuming low air speed:
-    $$T_{\text{op}} = \frac{T_{\text{air}} + \text{MRT}_{\text{final}}}{2}$$

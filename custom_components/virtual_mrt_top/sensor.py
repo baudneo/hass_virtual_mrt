@@ -42,6 +42,7 @@ from .const import (
     CONF_RADIANT_SURFACE_TEMP,
     CONF_RADIANT_TYPE,
     ORIENTATION_DEGREES,
+    CONF_RH_SENSOR,
 )
 from .device_info import get_device_info
 
@@ -56,8 +57,20 @@ async def async_setup_entry(
     device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
     mrt_sensor = VirtualMRTSensor(hass, entry, device_info)
     op_sensor = VirtualOperativeTempSensor(hass, entry, device_info, mrt_sensor)
-
-    async_add_entities([mrt_sensor, op_sensor])
+    entities = [mrt_sensor, op_sensor]
+    if config.get(CONF_RH_SENSOR):
+        entities.extend(
+            [
+                VirtualDewPointSensor(hass, entry, device_info),
+                VirtualFrostPointSensor(hass, entry, device_info),
+                VirtualAbsoluteHumiditySensor(hass, entry, device_info),
+                VirtualEnthalpySensor(hass, entry, device_info),
+                VirtualHumidexSensor(hass, entry, device_info),
+                VirtualPerceptionSensor(hass, entry, device_info),
+                VirtualMoldRiskSensor(hass, entry, device_info),
+            ]
+        )
+    async_add_entities(entities)
 
 
 class VirtualMRTSensor(SensorEntity):
@@ -733,3 +746,384 @@ class VirtualOperativeTempSensor(SensorEntity):
                 self._attr_native_value = None
         else:
             self._attr_native_value = None
+
+
+class Psychrometrics:
+    """Helper for thermodynamic calculations."""
+
+    @staticmethod
+    def calculate_vapor_pressure(t_air: float) -> float:
+        """Calculate saturation vapor pressure (hPa) using Magnus formula."""
+        return 6.112 * math.exp((17.67 * t_air) / (t_air + 243.5))
+
+    @staticmethod
+    def calculate_dew_point(t_air: float, rh: float) -> float:
+        """Calculate Dew Point (°C)."""
+        if rh <= 0:
+            return -50.0  # Safety
+        a = 17.27
+        b = 237.7
+        # Alpha parameter
+        alpha = ((a * t_air) / (b + t_air)) + math.log(rh / 100.0)
+        return (b * alpha) / (a - alpha)
+
+    @staticmethod
+    def calculate_frost_point(t_air: float, dew_point: float) -> float:
+        """
+        Calculate Frost Point (°C).
+        Above 0°C, Frost Point = Dew Point.
+        Below 0°C, Frost Point > Dew Point (saturation over ice).
+        """
+        if dew_point > 0:
+            return dew_point
+        # Simple approximation: T_fp = T_dp + (T_air - T_dp) / 10 (Simplified, but actual formula is complex iterative)
+        # Better: Use a distinct formula for vapor pressure over ice.
+        # Ideally, just use T_dp for user simplicity unless strict physics required.
+        # Let's use the standard T_dp + Correction for sub-zero.
+        return dew_point - (0.1 * (t_air - dew_point))  # Heuristic adjustment
+
+    @staticmethod
+    def calculate_absolute_humidity(t_air: float, rh: float) -> float:
+        """Calculate Absolute Humidity (g/m³)."""
+        # Formula: (6.112 * e^((17.67 * T)/(T + 243.5)) * RH * 2.1674) / (273.15 + T)
+        vp_sat = Psychrometrics.calculate_vapor_pressure(t_air)
+        vp_actual = vp_sat * (rh / 100.0)
+        return (vp_actual * 100 * 2.1674) / (273.15 + t_air)  # VP in hPa * 100 = Pa
+
+    @staticmethod
+    def calculate_enthalpy(t_air: float, rh: float) -> float:
+        """Calculate Air Enthalpy (kJ/kg)."""
+        # Specific heat of dry air = 1.006 kJ/kgK
+        # Latent heat of vaporization approx 2501 kJ/kg
+        # Humidity ratio (W) approx 0.622 * P_vap / P_atm
+
+        vp_sat = Psychrometrics.calculate_vapor_pressure(t_air)
+        vp_actual = vp_sat * (rh / 100.0)
+
+        # P_atm approx 1013.25 hPa at sea level (Close enough for HVAC trends)
+        p_atm = 1013.25
+        w = 0.622 * vp_actual / (p_atm - vp_actual)  # kg water / kg dry air
+
+        # H = 1.006*T + W*(2501 + 1.86*T)
+        return (1.006 * t_air) + (w * (2501 + 1.86 * t_air))
+
+    @staticmethod
+    def calculate_humidex(t_air: float, dew_point: float) -> float:
+        """Calculate Humidex (°C)."""
+        # Humidex = T + 0.5555 * (e - 10)
+        # e = vapor pressure in hPa (mbar)
+
+        # Calculate e from dewpoint (inverse Magnus)
+        e = 6.11 * math.exp(5417.7530 * ((1 / 273.16) - (1 / (273.15 + dew_point))))
+
+        return t_air + 0.5555 * (e - 10)
+
+
+class VirtualPsychroBase(SensorEntity):
+    """Base class for sensors dependent on Air Temp and RH."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, hass, entry, device_info):
+        self.hass = hass
+        self._entry = entry
+        self._attr_device_info = device_info
+        self.entity_air = entry.data[CONF_AIR_TEMP_SOURCE]
+        self.entity_rh = entry.data[CONF_RH_SENSOR]
+        self._attributes = {}
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        return self._attributes
+
+    async def async_added_to_hass(self):
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self.entity_air, self.entity_rh], self._handle_update
+            )
+        )
+        self._handle_update(None)
+
+    @callback
+    def _handle_update(self, event):
+        t_state = self.hass.states.get(self.entity_air)
+        rh_state = self.hass.states.get(self.entity_rh)
+
+        if (
+            not t_state
+            or not rh_state
+            or t_state.state in ["unknown", "unavailable"]
+            or rh_state.state in ["unknown", "unavailable"]
+        ):
+            self._attr_native_value = None
+            return
+
+        try:
+            t = float(t_state.state)
+            rh = float(rh_state.state)
+
+            # Initialize attributes with the raw inputs for transparency
+            self._attributes = {"input_air_temp": t, "input_relative_humidity": rh}
+
+            self._update_value(t, rh)
+            self.async_write_ha_state()
+        except ValueError:
+            self._attr_native_value = None
+
+    def _update_value(self, t, rh):
+        raise NotImplementedError
+
+
+class VirtualDewPointSensor(VirtualPsychroBase):
+    _attr_name = "Dew Point"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_suggested_display_precision = 1
+    translation_key = "dew_point"
+    _attr_unique_id_suffix = "dew_point"
+
+    def __init__(self, hass, entry, device_info):
+        super().__init__(hass, entry, device_info)
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+    def _update_value(self, t, rh):
+        # Dew point doesn't have intermediates other than VP, usually not needed.
+        self._attr_native_value = round(Psychrometrics.calculate_dew_point(t, rh), 1)
+
+
+class VirtualFrostPointSensor(VirtualPsychroBase):
+    _attr_name = "Frost Point"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_suggested_display_precision = 1
+    translation_key = "frost_point"
+    _attr_unique_id_suffix = "frost_point"
+
+    def __init__(self, hass, entry, device_info):
+        super().__init__(hass, entry, device_info)
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+    def _update_value(self, t, rh):
+        dp = Psychrometrics.calculate_dew_point(t, rh)
+        self._attributes["calculated_dew_point"] = round(dp, 2)  # Show intermediate
+        self._attr_native_value = round(Psychrometrics.calculate_frost_point(t, dp), 1)
+
+
+class VirtualAbsoluteHumiditySensor(VirtualPsychroBase):
+    _attr_name = "Absolute Humidity"
+    _attr_native_unit_of_measurement = "g/m³"
+    _attr_suggested_display_precision = 2
+    translation_key = "absolute_humidity"
+    _attr_unique_id_suffix = "abs_humidity"
+    _attr_icon = "mdi:water"
+
+    def __init__(self, hass, entry, device_info):
+        super().__init__(hass, entry, device_info)
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+    def _update_value(self, t, rh):
+        self._attr_native_value = round(
+            Psychrometrics.calculate_absolute_humidity(t, rh), 2
+        )
+
+
+class VirtualEnthalpySensor(VirtualPsychroBase):
+    _attr_name = "Air Enthalpy"
+    _attr_native_unit_of_measurement = "kJ/kg"
+    _attr_suggested_display_precision = 2
+    translation_key = "enthalpy"
+    _attr_unique_id_suffix = "enthalpy"
+    _attr_icon = "mdi:chart-bell-curve"
+
+    def __init__(self, hass, entry, device_info):
+        super().__init__(hass, entry, device_info)
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+    def _update_value(self, t, rh):
+        self._attr_native_value = round(Psychrometrics.calculate_enthalpy(t, rh), 2)
+
+
+class VirtualHumidexSensor(VirtualPsychroBase):
+    _attr_name = "Humidex"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_suggested_display_precision = 1
+    translation_key = "humidex"
+    _attr_unique_id_suffix = "humidex"
+
+    def __init__(self, hass, entry, device_info):
+        super().__init__(hass, entry, device_info)
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+    def _update_value(self, t, rh):
+        dp = Psychrometrics.calculate_dew_point(t, rh)
+        self._attributes["calculated_dew_point"] = round(dp, 2)
+        self._attr_native_value = round(Psychrometrics.calculate_humidex(t, dp), 1)
+
+
+class VirtualPerceptionSensor(VirtualPsychroBase):
+    _attr_name = "Thermal Perception"
+    _attr_device_class = SensorDeviceClass.ENUM
+    translation_key = "perception"
+    _attr_unique_id_suffix = "perception"
+    _attr_options = [
+        "comfortable",
+        "noticeable_discomfort",
+        "evident_discomfort",
+        "intense_discomfort",
+        "dangerous_discomfort",
+        "heat_stroke_imminent",
+    ]
+    _attr_icon = "mdi:emoticon-happy"
+
+    def __init__(self, hass, entry, device_info):
+        super().__init__(hass, entry, device_info)
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+    def _update_value(self, t, rh):
+        dp = Psychrometrics.calculate_dew_point(t, rh)
+        humidex = Psychrometrics.calculate_humidex(t, dp)
+
+        self._attributes["calculated_dew_point"] = round(dp, 2)
+        self._attributes["calculated_humidex"] = round(humidex, 1)
+
+        if humidex < 30:
+            self._attr_native_value = "comfortable"
+            self._attr_icon = "mdi:emoticon-happy"
+        elif humidex < 35:
+            self._attr_native_value = "noticeable_discomfort"
+            self._attr_icon = "mdi:emoticon-neutral"
+        elif humidex < 40:
+            self._attr_native_value = "evident_discomfort"
+            self._attr_icon = "mdi:emoticon-sad"
+        elif humidex < 46:
+            self._attr_native_value = "intense_discomfort"
+            self._attr_icon = "mdi:emoticon-cry"
+        elif humidex < 54:
+            self._attr_native_value = "dangerous_discomfort"
+            self._attr_icon = "mdi:alert"
+        else:
+            self._attr_native_value = "heat_stroke_imminent"
+            self._attr_icon = "mdi:alert-octagon"
+
+
+class VirtualMoldRiskSensor(VirtualPsychroBase):
+    """
+    Calculates Mold Risk based on the estimated humidity at the wall surface.
+    Uses k_loss and T_out to model the wall temperature drop.
+    """
+
+    _attr_name = "Mold Risk"
+    _attr_native_unit_of_measurement = "%"  # Reporting 'Surface RH' as the risk metric
+    _attr_device_class = SensorDeviceClass.HUMIDITY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    translation_key = "mold_risk"
+    _attr_unique_id_suffix = "mold_risk"
+    _attr_icon = "mdi:bacteria-outline"
+
+    def __init__(self, hass, entry, device_info):
+        super().__init__(hass, entry, device_info)
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+        # We need to look up k_loss dynamically
+        self.id_k_loss = None
+        self.entity_weather = entry.data[CONF_WEATHER_ENTITY]
+
+    async def async_added_to_hass(self):
+        """Register listeners (extending base to find k_loss)."""
+        await super().async_added_to_hass()
+
+        # Find the k_loss number entity for this device
+        registry = er.async_get(self.hass)
+        self.id_k_loss = registry.async_get_entity_id(
+            "number", DOMAIN, f"{self._entry.entry_id}_k_loss"
+        )
+
+        # We need to listen to T_out (weather) and k_loss changes too
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self.entity_weather], self._handle_update
+            )
+        )
+        if self.id_k_loss:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, [self.id_k_loss], self._handle_update
+                )
+            )
+
+    def _get_float_state(self, entity_id, default=0.0):
+        if not entity_id:
+            return default
+        state = self.hass.states.get(entity_id)
+        if state and state.state not in ["unknown", "unavailable"]:
+            try:
+                return float(state.state)
+            except ValueError:
+                pass
+        return default
+
+    def _update_value(self, t_air, rh):
+        # 1. Get Outdoor Temp
+        w_state = self.hass.states.get(self.entity_weather)
+        t_out = t_air  # Default to no delta
+        if w_state:
+            t_out = w_state.attributes.get("temperature", t_air)
+
+        # 2. Get Insulation Factor (k_loss)
+        # Default to 0.14 (average) if not ready
+        k_loss = self._get_float_state(self.id_k_loss, 0.14)
+
+        # 3. Calculate Wall Surface Temperature (T_surface)
+        # Heuristic: The wall surface is colder than air by a factor of the outdoor delta.
+        # A higher k_loss (poor insulation) means a colder wall.
+        # Multiplier 2.5 approximates the specific thermal bridge temperature drop based on k_loss.
+        # Formula: T_surf = T_air - (Delta_T * k_loss * Factor)
+        delta_t = t_air - t_out
+
+        # Only calculate drop if it's colder outside.
+        # If it's hotter outside, condensation risk is reversed (vapor barrier),
+        # but for indoor mold we usually care about winter/shoulder seasons.
+        wall_temp_drop = 0.0
+        if delta_t > 0:
+            wall_temp_drop = delta_t * k_loss * 2.5
+
+        t_surface = t_air - wall_temp_drop
+
+        # 4. Calculate Relative Humidity at the Surface (Surface RH)
+        # This determines mold risk. Mold grows if Surface RH > 80%.
+
+        # Get Vapor Pressure of the room air (constant across the room)
+        vp_room = Psychrometrics.calculate_vapor_pressure(t_air) * (rh / 100.0)
+
+        # Get Saturation Vapor Pressure at the cold wall surface
+        vp_sat_surface = Psychrometrics.calculate_vapor_pressure(t_surface)
+
+        # Calculate RH at the surface
+        if vp_sat_surface == 0:
+            surface_rh = 100.0
+        else:
+            surface_rh = (vp_room / vp_sat_surface) * 100.0
+
+        # Cap at 100%
+        surface_rh = min(100.0, max(0.0, surface_rh))
+
+        self._attr_native_value = round(surface_rh, 1)
+
+        # Add rich attributes for debugging/science
+        self._attributes["outdoor_temp"] = t_out
+        self._attributes["estimated_wall_surface_temp"] = round(t_surface, 1)
+        self._attributes["insulation_factor_k"] = k_loss
+
+        # Set dynamic icon/risk level in attributes
+        if surface_rh < 60:
+            self._attributes["risk_level"] = "Low"
+            self._attr_icon = "mdi:shield-check"
+        elif surface_rh < 80:
+            self._attributes["risk_level"] = "Warning"
+            self._attr_icon = "mdi:alert-box-outline"
+        else:
+            self._attributes["risk_level"] = "Critical"
+            self._attr_icon = "mdi:alert-decagram"

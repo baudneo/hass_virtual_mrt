@@ -26,6 +26,7 @@ CONF_MANUAL_AIR_SPEED = "manual_air_speed"
 CONF_HVAC_AIR_SPEED = "hvac_air_speed"
 CONF_RADIANT_SURFACE_TEMP = "radiant_surface_temp"
 CONF_RADIANT_TYPE = "radiant_type"
+CONF_RH_SENSOR = "rh_sensor"
 CUSTOM_PROFILE_KEY = "custom"
 
 ORIENTATION_OPTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]

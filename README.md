@@ -31,10 +31,10 @@ This is achieved by computing the **Mean Radiant Temperature (MRT)**, which trac
 
 ## 💡 Why MRT and $T_{op}$ Are Useful
 
-| Sensor | Definition | Use in HASS |
-|:---|:---|:---|
-| **Mean Radiant Temp (MRT)** | The effective temperature of the room's surfaces (walls, windows, floor, ceiling). | Essential for **monitoring radiant systems** (floor heating/cooling). It allows you to see the **thermal lag** of your home's structure. 🐌 |
-| **Operative Temp ($T_{op}$)** | The weighted average of the Air Temperature and the MRT. | **The ultimate trigger for HVAC automation.** Use $T_{op}$ instead of $T_{air}$ to ensure your heating/cooling system only runs when a person *feels* uncomfortable, saving energy and improving comfort. 🎯 |
+| Sensor                        | Definition                                                                         | Use in HASS                                                                                                                                                                                                  |
+|:------------------------------|:-----------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Mean Radiant Temp (MRT)**   | The effective temperature of the room's surfaces (walls, windows, floor, ceiling). | Essential for **monitoring radiant systems** (floor heating/cooling). It allows you to see the **thermal lag** of your home's structure. 🐌                                                                  |
+| **Operative Temp ($T_{op}$)** | The weighted average of the Air Temperature and the MRT.                           | **The ultimate trigger for HVAC automation.** Use $T_{op}$ instead of $T_{air}$ to ensure your heating/cooling system only runs when a person *feels* uncomfortable, saving energy and improving comfort. 🎯 |
 
 ---
 
@@ -46,19 +46,19 @@ This integration exposes a **Virtual Device** for each room you configure. This 
 
 The calculation relies on **four primary configurable inputs** (number entities) that represent the structural qualities of your room.
 
-| Input Name | Layman's Explanation | Value Range | Example by Home Type |
-|:---|:---|:---|:---|
-| **Exterior Envelope Ratio** ($f_{\text{out}}$) | **Exterior Wall Share.** How much of the room's total interior surface area touches the outside or an unconditioned space (like an attic or cold garage). | $0.0 - 1.0+$ | **0.15:** Interior apartment room. **0.80:** Corner room. **0.95:** Top-floor attic room. |
-| **Window Share** ($f_{\text{win}}$) | **Window Ratio.** The percentage of the exterior wall area that is glass. | $0.0 - 1.0$ | **0.10:** Small basement window. **0.50:** Large picture window/patio door. 🖼️ |
-| **Insulation Loss Factor** ($k_{\text{loss}}$) | **Heat Leakage / U-Value.** How poorly insulated your walls and windows are, influencing heat loss in winter. (Higher value = worse insulation). | $0.05 - 0.30$ | **0.10:** Modern, well-insulated home. **0.25:** Old, uninsulated walls. |
-| **Solar Gain Factor** ($k_{\text{solar}}$) | **Solar Heating Power.** How much solar energy actually passes through your windows to heat the room (often called SHGC). | $0.0 - 2.0$ | **0.8:** Standard clear glass. **1.5:** Tilted skylight/very large clear windows. |
+| Input Name                                     | Layman's Explanation                                                                                                                                      | Value Range   | Example by Home Type                                                                      |
+|:-----------------------------------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------|:--------------|:------------------------------------------------------------------------------------------|
+| **Exterior Envelope Ratio** ($f_{\text{out}}$) | **Exterior Wall Share.** How much of the room's total interior surface area touches the outside or an unconditioned space (like an attic or cold garage). | $0.0 - 1.0+$  | **0.15:** Interior apartment room. **0.80:** Corner room. **0.95:** Top-floor attic room. |
+| **Window Share** ($f_{\text{win}}$)            | **Window Ratio.** The percentage of the exterior wall area that is glass.                                                                                 | $0.0 - 1.0$   | **0.10:** Small basement window. **0.50:** Large picture window/patio door. 🖼️           |
+| **Insulation Loss Factor** ($k_{\text{loss}}$) | **Heat Leakage / U-Value.** How poorly insulated your walls and windows are, influencing heat loss in winter. (Higher value = worse insulation).          | $0.05 - 0.30$ | **0.10:** Modern, well-insulated home. **0.25:** Old, uninsulated walls.                  |
+| **Solar Gain Factor** ($k_{\text{solar}}$)     | **Solar Heating Power.** How much solar energy actually passes through your windows to heat the room (often called SHGC).                                 | $0.0 - 2.0$   | **0.8:** Standard clear glass. **1.5:** Tilted skylight/very large clear windows.         |
 
 ### 2. Thermal Smoothing Factor ($\alpha$)
 
 This input is critical for accurately modeling the room's **thermal inertia** (thermal mass).
 
-| Input Name | Purpose | Suggested Range | Example by Home Type |
-|:---|:---|:---|:---|
+| Input Name                              | Purpose                                                                                            | Suggested Range                      | Example by Home Type                                                                                                                                                                                                           |
+|:----------------------------------------|:---------------------------------------------------------------------------------------------------|:-------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Thermal Smoothing Factor** ($\alpha$) | Controls **how quickly** the calculated MRT responds to changes in outside conditions (sun, wind). | $0.05$ (Slowest) to $0.95$ (Fastest) | A North American 1950's wood-frame house has **low thermal mass**. You would use a **higher $\alpha$** (e.g., $0.40$ – $0.60$). A German home with thick masonry walls would use a **lower $\alpha$** (e.g., $0.05$ – $0.20$). |
 
 #### Update Behavior
@@ -116,7 +116,7 @@ If you have in-floor heating or radiators, the logic adapts.
 
 ## 📡 External Data Sources and Fallbacks
 
-The MRT calculation is reactive, meaning it constantly adjusts based on real-time weather conditions. For this, it pulls data from the **Weather Entity** and the optional **Global Solar Radiation Sensor**.
+The MRT calculation is reactive, meaning it constantly adjusts based on real-time weather conditions. For this, it pulls data from the **Weather Entity**, **`sun.sun`** and the optional **Global Solar Radiation Sensor**.
 
 | Data Point                       | Source                                                       | Use in Calculation                                                                                                                                                             |
 |:---------------------------------|:-------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -126,7 +126,7 @@ The MRT calculation is reactive, meaning it constantly adjusts based on real-tim
 | **Cloud Coverage / UV Index**    | `weather` entity attributes or dedicated `sensor`            | Used to estimate **Global Solar Radiation** (Solar Gain).                                                                                                                      |
 | **Precipitation / Condition**    | `weather` entity state (`rainy`, `snowy`, etc.)              | Used to apply a **Rain Multiplier** (penalty) to the solar gain, simulating dark, wet conditions that reduce radiation transmission.                                           |
 | **Sun Elevation**                | Home Assistant's `sun.sun` entity                            | Determines the **Daylight Factor**, used as a multiplier for solar gain when the sun is below the horizon.                                                                     |
-| **Sun Azimuth**                  | Home Assistant's `sun.sun` entity                            | Used to calculate the **Solar Angle of Incidence Factor**, used to determine how the sun is hitting the window                                                                 |
+| **Sun Azimuth**                  | Home Assistant's `sun.sun` entity                            | Calculates the **Solar Angle of Incidence Factor**, used to determine how the sun is hitting the window                                                                        |
 | **Global Solar Radiation**       | Optional dedicated `sensor` (e.g., `sensor.solar_radiation`) | **Preferred source** for solar gain calculation. Bypasses all weather heuristics if available (will log a warning on values > `1300 W/m²`, but will still use it).             |
 
 >[!NOTE]
@@ -166,3 +166,74 @@ The Mean Radiant Temperature ($\text{MRT}_{\text{final}}$) calculation is a thre
 
 4.  **Operative Temperature ($T_{op}$):** The final reported temperature uses the dynamic weighting derived in step 1.
     $$T_{\text{op}} = A_{\text{Radiant}} \cdot \text{MRT}_{\text{final}} + (1 - A_{\text{Radiant}}) \cdot T_{\text{air}}$$
+---
+
+## 💧 Psychrometric & Moisture Data (Optional)
+
+If you configure a **Relative Humidity (RH) Sensor** in the integration settings, the device will automatically calculate and expose 7 additional advanced sensors. These are critical for holistic home health monitoring, mold prevention, and summer comfort control.
+
+### 1. Enabling Psychrometrics
+* **How to Enable:** In the Config Flow (or via "Configure"), select a sensor for **Relative Humidity Source**.
+* **Result:** The integration immediately initializes the following sensors for that room.
+
+### 2. Sensor Descriptions & Use Cases
+
+| Sensor                     | Unit    | What it tells you                                            | Best Use Case                                                                                                                                                                                                                 |
+|:---------------------------|:--------|:-------------------------------------------------------------|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Dew Point** ($T_{dp}$)   | °C      | The temperature at which condensation forms.                 | **Mold Prevention.** If $T_{dp}$ approaches the temperature of your walls/windows, you are at risk of mold. Keep indoor $T_{dp} < 18°C$ in summer to avoid "stickiness."                                                      |
+| **Frost Point** ($T_{fp}$) | °C      | Similar to Dew Point, but for ice formation.                 | **Winter Safety.** Monitor this in attics or near windows. If $T_{fp}$ is higher than the surface temp, frost will form inside your walls.                                                                                    |
+| **Absolute Humidity**      | $g/m^3$ | The actual mass of water vapor in the air volume.            | **Dehumidifier Control.** Unlike RH, which changes with temperature, this tells you the *actual* moisture load. Use it to compare Indoor vs. Outdoor moisture to decide if opening a window will *actually* dry out the room. |
+| **Air Enthalpy** ($h$)     | $kJ/kg$ | The total heat energy (sensible + latent) stored in the air. | **Efficiency.** Used to control Energy Recovery Ventilators (ERVs) or Economizers. It tells you if the outside air actually has less *energy* than inside air, even if the temperature looks okay.                            |
+| **Humidex**                | °C      | A "feels-like" temperature combining heat and humidity.      | **Summer Comfort.** Use this to trigger Air Conditioning. High humidity makes $24°C$ feel like $30°C$. $T_{op}$ handles radiant heat; Humidex handles sweat evaporation limits.                                               |
+| **Thermal Perception**     | Text    | A human-readable comfort status.                             | **Dashboards.** Outputs states like `"Comfortable"`, `"Sticky"`, or `"Dangerous"`. Great for quick-glance dashboards or sending phone notifications.                                                                          |
+
+>[!IMPORTANT]
+> **Technical Note:** All psychrometric values are calculated using the **Air Temperature** ($T_{air}$), not the Operative Temperature ($T_{op}$). This is because humidity properties are physically bound to the air mass itself, not the radiant environment.
+
+### 🦠 Mold Risk Sensor (Critical Surface Analysis)
+
+Most "mold sensors" just alert you if the room humidity goes above 60%. This is often inaccurate in cold climates because mold doesn't start in the middle of the room—it starts on the coldest surface (thermal bridges, corners, or windows).
+
+The **Virtual Mold Risk Sensor** uses your specific room parameters to calculate the relative humidity **at the surface of your exterior walls**, providing a much more accurate safety metric.
+
+#### How it works
+It combines four data points to model the microclimate at your wall's surface:
+1.  **Indoor Air & Humidity:** ($T_{air}$, $RH$)
+2.  **Outdoor Temperature:** ($T_{out}$ from Weather Entity)
+3.  **Insulation Quality:** ($k_{loss}$ from your Configured Profile)
+
+Using the **Insulation Loss Factor** ($k_{loss}$), the integration estimates how much colder your wall surface is compared to the room air. For example, if it is $-20^{\circ}\text{C}$ outside and your insulation is poor, your wall surface might be only $12^{\circ}\text{C}$ even if the room is $21^{\circ}\text{C}$.
+
+#### Risk Levels
+The sensor reports the **Surface Relative Humidity** and assigns a risk level icon:
+
+| Surface RH    | Status       | Icon | Meaning                                                                                                                                        |
+|:--------------|:-------------|:-----|:-----------------------------------------------------------------------------------------------------------------------------------------------|
+| **< 65%**     | **Low Risk** | 🛡️  | Safe. No action needed.                                                                                                                        |
+| **65% - 80%** | **Warning**  | ⚠️   | **Pre-conditions for mold.** The surface is damp enough for spores to settle. You should lower indoor humidity or improve air circulation.     |
+| **> 80%**     | **CRITICAL** | ☣️   | **Active Growth Potential.** Conditions are perfect for mold germination on your walls. Immediate ventilation or dehumidification is required. |
+
+> **Why this matters:** In winter, a room at 45% RH might feel dry to you, but if your walls are cold, that same air can cause 90% RH at the wall surface, leading to hidden mold growth behind furniture. This sensor detects that invisible risk.
+---
+## 🔌 KNX Integration
+
+The original blueprint included logic to manually push values to a KNX Bus. Since this integration creates standard Home Assistant entities, you now use the native **KNX Integration** to expose these values.
+
+To send the **Mean Radiant Temperature** or **Operative Temperature** to your KNX system (thermostats, displays, etc.), add the following to your `configuration.yaml`.
+
+**Data Point Type:** The integration outputs values compatible with **DPT 9.001** (Temperature °C).
+
+```yaml
+# configuration.yaml
+
+knx:
+  expose:
+    # Expose MRT to KNX
+    - type: temperature        # DPT 9.001
+      address: "1/0/10"        # Replace with your KNX Group Address
+      entity_id: sensor.living_room_mean_radiant_temperature
+
+    # Expose Operative Temperature (T_op) to KNX
+    - type: temperature        # DPT 9.001
+      address: "1/0/11"        # Replace with your KNX Group Address
+      entity_id: sensor.living_room_operative_temperature

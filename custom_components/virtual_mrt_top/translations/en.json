@@ -3,27 +3,42 @@
     "step": {
       "user": {
         "title": "Set up Virtual MRT/T_op Room",
-        "description": "Enter the details of the room to calculate MRT and Operative Temperature.",
+        "description": "Enter the details of the room to calculate Mean Radiant Temperature and Operative Temperature.",
         "data": {
           "name": "Room Name",
           "air_temp_source": "Room Air Temperature Sensor",
           "weather_entity": "Weather Entity",
           "room_profile": "Room Profile",
           "orientation": "Main Window Orientation",
-          "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor (Optional)"
+          "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor (Optional)",
+          "climate_entity": "HVAC Climate/Thermostat Entity (Optional)",
+          "fan_entity": "Local Fan/Ceiling Fan Entity (Optional)",
+          "window_state_sensor": "Window Open Binary Sensor (Optional)",
+          "door_state_sensor": "Door Open Binary Sensor (Optional)",
+          "manual_air_speed": "Manual Air Speed (m/s)",
+          "shading_entity": "Blinds/Cover Entity (Optional)",
+          "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)"
         }
       }
-    },
-    "options": {
-      "step": {
-        "init": {
-          "title": "Configure Virtual MRT/T_op",
-          "description": "Adjust core settings of the room.",
-          "data": {
-            "orientation": "Main Window Orientation",
-            "weather_entity": "Weather Entity",
-            "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor (Optional)"
-          }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Virtual MRT/T_op",
+        "description": "Adjust core settings of the room.",
+        "data": {
+          "air_temp_source": "Room Air Temperature Sensor",
+          "weather_entity": "Weather Entity",
+          "orientation": "Main Window Orientation",
+          "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor (Optional)",
+          "climate_entity": "HVAC Climate/Thermostat Entity (Optional)",
+          "fan_entity": "Local Fan/Ceiling Fan Entity (Optional)",
+          "window_state_sensor": "Window Open Binary Sensor (Optional)",
+          "door_state_sensor": "Door Open Binary Sensor (Optional)",
+          "manual_air_speed": "Manual Air Speed (m/s)",
+          "shading_entity": "Blinds/Cover Entity (Optional)",
+          "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)"
         }
       }
     }
@@ -72,6 +87,16 @@
       },
       "thermal_alpha": {
         "name": "Thermal Smoothing Factor"
+      },
+      "radiant_surface_temp": {
+        "name": "Radiant Surface Target Temperature",
+        "description": "The target temperature of the emitting surface (e.g., Floor Temp or Radiator Water Temp) when heating."
+      },
+      "hvac_air_speed": {
+        "name": "HVAC Airflow Speed"
+      },
+      "manual_air_speed": {
+        "name": "Manual Air Speed"
       }
     },
     "select": {
@@ -93,6 +118,14 @@
           "interior": "Interior room",
           "interior_cold_adjacent": "Interior, cold adjacent",
           "custom": "Unsaved Custom Profile"
+        }
+      },
+      "radiant_type": {
+        "name": "Radiant System Type",
+        "state": {
+          "high_mass": "Concrete Slab (Slow)",
+          "medium_mass": "Joist/Wood (Medium)",
+          "low_mass": "Radiator/Baseboard (Fast)"
         }
       }
     },

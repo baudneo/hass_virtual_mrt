@@ -2,6 +2,6 @@
   "name": "Virtual MRT / Operative Temperature",
   "domains": ["sensor", "number", "select", "text", "button"],
   "homeassistant": "2023.10.0",
-  "country": "CA",
+  "country": ["CA", "US"],
   "render_readme": true
 }

@@ -5,6 +5,7 @@ Example:
 
 - 2 temp/humidity sensors in the main floor living room
   - these 2 sensors are merged using the HASS group/combine/sum helper into a single sensor called "Living Room Avg. temp"
+    - You will need to use customize.yaml to set the `device_class: temperature` for this sensor, for some reason the helper does not set it automatically!
 - OpenWeatherMap weather integration for the weather entity
 - HASS Sun integration setup for the `sun.sun` entity
 - A dedicated Global Solar Radiation sensor (can be a template or physical sensor)

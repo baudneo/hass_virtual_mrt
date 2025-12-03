@@ -34,9 +34,8 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ):
     """Set up the button entities."""
-    device_info = await get_device_info(
-        {(DOMAIN, entry.entry_id)}, entry.data[CONF_NAME]
-    )
+    config = entry.data
+    device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
 
     # Each button gets access to the same storage file
     store_key = f"{STORAGE_KEY}_{entry.entry_id}"

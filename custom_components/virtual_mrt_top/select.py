@@ -5,13 +5,14 @@ import logging
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME
+from homeassistant.const import CONF_NAME, Platform
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.entity import EntityCategory
 
 from .const import (
     DOMAIN,
@@ -22,8 +23,16 @@ from .const import (
     STORAGE_VERSION,
     STORE_KEY_CUSTOM,
     STORE_KEY_SAVED,
+    CONF_CLIMATE_ENTITY,
+    CONF_WINDOW_STATE_SENSOR,
+    CONF_DOOR_STATE_SENSOR,
+    CONF_FAN_ENTITY,
+    CONF_MANUAL_AIR_SPEED,
+    CONF_RADIANT_TYPE,
+    RADIANT_TYPES,
 )
 from .device_info import get_device_info
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,14 +41,54 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ):
     """Set up the select entity."""
-    device_info = await get_device_info(
-        {(DOMAIN, entry.entry_id)}, entry.data[CONF_NAME]
-    )
-
+    config = entry.data
+    device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
     store_key = f"{STORAGE_KEY}_{entry.entry_id}"
     store = Store(hass, STORAGE_VERSION, store_key)
 
-    async_add_entities([VirtualProfileSelect(hass, entry, device_info, store)])
+    async_add_entities(
+        [
+            VirtualProfileSelect(hass, entry, device_info, store),
+            VirtualRadiantTypeSelect(hass, entry, device_info),
+        ]
+    )
+
+
+# --- NEW CLASS ADDED: VirtualRadiantTypeSelect ---
+class VirtualRadiantTypeSelect(SelectEntity):
+    """Select entity for the type of radiant system, determining response time."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:radiator"
+    translation_key = "radiant_type"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, device_info):
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_{CONF_RADIANT_TYPE}"
+        self._attr_device_info = device_info
+
+        # Options are the keys from the RADIANT_TYPES map
+        self._attr_options = list(RADIANT_TYPES.keys())
+
+        # Get initial state from config, defaulting to low_mass (fastest) if not set
+        self._attr_current_option = entry.data.get(CONF_RADIANT_TYPE, "low_mass")
+
+    async def async_select_option(self, option: str) -> None:
+        """Handle selection and update the configuration entry."""
+        if option not in self._attr_options:
+            _LOGGER.error("Invalid radiant type selected: %s", option)
+            return
+
+        # 1. Update the internal state of the entity
+        self._attr_current_option = option
+        self.async_write_ha_state()
+
+        # 2. Update the persistent configuration entry data
+        new_data = self._entry.data.copy()
+        new_data[CONF_RADIANT_TYPE] = option
+        self.hass.config_entries.async_update_entry(self._entry, data=new_data)
 
 
 class VirtualProfileSelect(SelectEntity):
@@ -64,10 +113,17 @@ class VirtualProfileSelect(SelectEntity):
         self._saved_profiles: dict[str, list[float]] = {}
         self._custom_profile_data: list[float] | None = None
 
+        # Entity IDs of the number inputs, to be found
         self.id_f_out = None
         self.id_f_win = None
         self.id_k_loss = None
         self.id_k_solar = None
+
+        self.id_climate = None
+        self.id_fan = None
+        self.id_window = None
+        self.id_door = None
+        self.id_manual_speed = None
 
         self._is_updating = False
 
@@ -92,6 +148,26 @@ class VirtualProfileSelect(SelectEntity):
             "number", DOMAIN, f"{self._entry.entry_id}_k_solar"
         )
 
+        self.id_climate = registry.async_get_entity_id(
+            Platform.CLIMATE, DOMAIN, f"{self._entry.entry_id}_{CONF_CLIMATE_ENTITY}"
+        )
+        self.id_fan = registry.async_get_entity_id(
+            Platform.FAN, DOMAIN, f"{self._entry.entry_id}_{CONF_FAN_ENTITY}"
+        )
+        self.id_window = registry.async_get_entity_id(
+            Platform.BINARY_SENSOR,
+            DOMAIN,
+            f"{self._entry.entry_id}_{CONF_WINDOW_STATE_SENSOR}",
+        )
+        self.id_door = registry.async_get_entity_id(
+            Platform.BINARY_SENSOR,
+            DOMAIN,
+            f"{self._entry.entry_id}_{CONF_DOOR_STATE_SENSOR}",
+        )
+        self.id_manual_speed = registry.async_get_entity_id(
+            "number", DOMAIN, f"{self._entry.entry_id}_{CONF_MANUAL_AIR_SPEED}"
+        )
+
         number_entities = [
             self.id_f_out,
             self.id_f_win,
@@ -103,6 +179,7 @@ class VirtualProfileSelect(SelectEntity):
             _LOGGER.warning("Could not find all number entities for %s", self.entity_id)
             return
 
+        # ONLY Listen for manual changes to the primary profile number entities
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, number_entities, self._handle_number_change
@@ -112,7 +189,7 @@ class VirtualProfileSelect(SelectEntity):
     async def _get_current_number_values(self) -> list[float] | None:
         """Helper to safely read current values from number entities."""
         try:
-            # Note: We read states directly since we are not in the main update loop.
+            # We read states directly since we are not in the main update loop.
             values = [
                 float(self.hass.states.get(self.id_f_out).state),
                 float(self.hass.states.get(self.id_f_win).state),

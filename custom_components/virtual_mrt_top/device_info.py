@@ -2,6 +2,7 @@
 
 from typing import Iterable
 
+
 async def get_device_info(identifier: Iterable, name: str):
     device_info = {
         "identifiers": identifier,

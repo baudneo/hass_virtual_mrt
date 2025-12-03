@@ -27,6 +27,7 @@ from .const import (
     CONF_SHADING_ENTITY,
     DEFAULT_ORIENTATION,
     CONF_IS_RADIANT,
+    CONF_RH_SENSOR,
 )
 
 OPTIONAL_ENTITY_SCHEMA = vol.All(vol.Any(str, None), selector.EntitySelector)
@@ -77,16 +78,21 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             mode=SelectSelectorMode.DROPDOWN,
                         )
                     ),
-                    # --- OPTIONAL ENTITIES (Using Helper for Robust Validation) ---
-                    vol.Optional(CONF_SOLAR_SENSOR): OPTIONAL_ENTITY_SCHEMA(
-                        selector.EntitySelectorConfig(domain=Platform.SENSOR)
-                    ),
-                    vol.Optional(CONF_CLIMATE_ENTITY): OPTIONAL_ENTITY_SCHEMA(
-                        selector.EntitySelectorConfig(domain=Platform.CLIMATE)
-                    ),
                     vol.Required(
                         CONF_IS_RADIANT, default=False
                     ): selector.BooleanSelector(),
+                    # --- OPTIONAL ENTITIES (Using Helper for Robust Validation) ---
+                    vol.Optional(CONF_CLIMATE_ENTITY): OPTIONAL_ENTITY_SCHEMA(
+                        selector.EntitySelectorConfig(domain=Platform.CLIMATE)
+                    ),
+                    vol.Optional(CONF_RH_SENSOR): OPTIONAL_ENTITY_SCHEMA(
+                        selector.EntitySelectorConfig(
+                            domain=Platform.SENSOR, device_class="humidity"
+                        )
+                    ),
+                    vol.Optional(CONF_SOLAR_SENSOR): OPTIONAL_ENTITY_SCHEMA(
+                        selector.EntitySelectorConfig(domain=Platform.SENSOR)
+                    ),
                     vol.Optional(CONF_FAN_ENTITY): OPTIONAL_ENTITY_SCHEMA(
                         selector.EntitySelectorConfig(domain=Platform.FAN)
                     ),
@@ -163,6 +169,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         orientation = _get_data("orientation", CONF_ORIENTATION, DEFAULT_ORIENTATION)
         weather = _get_data("weather_entity", CONF_WEATHER_ENTITY)
         solar = _get_data("solar_sensor", CONF_SOLAR_SENSOR)
+        rh = _get_data("rh_sensor", CONF_RH_SENSOR)
 
         climate = _get_data("climate_entity", CONF_CLIMATE_ENTITY)
         fan = _get_data("fan_entity", CONF_FAN_ENTITY)
@@ -179,6 +186,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Required("air_temp_source", default=air_temp): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain=Platform.SENSOR, device_class="temperature"
+                )
+            ),
+            vol.Optional(
+                "rh_sensor", description={"suggested_value": rh}
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=Platform.SENSOR, device_class="humidity"
                 )
             ),
             vol.Required("orientation", default=orientation): selector.SelectSelector(

@@ -17,7 +17,8 @@
           "door_state_sensor": "Door Open Binary Sensor (Optional)",
           "manual_air_speed": "Manual Air Speed (m/s)",
           "shading_entity": "Blinds/Cover Entity (Optional)",
-          "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)"
+          "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)",
+          "rh_sensor": "Relative Humidity Sensor (Optional)"
         }
       }
     }
@@ -38,7 +39,8 @@
           "door_state_sensor": "Door Open Binary Sensor (Optional)",
           "manual_air_speed": "Manual Air Speed (m/s)",
           "shading_entity": "Blinds/Cover Entity (Optional)",
-          "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)"
+          "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)",
+          "rh_sensor": "Relative Humidity Sensor (Optional)"
         }
       }
     }
@@ -70,7 +72,14 @@
       },
       "operative_temperature": {
         "name": "Operative Temperature"
-      }
+      },
+      "dew_point": { "name": "Dew Point" },
+      "frost_point": { "name": "Frost Point" },
+      "absolute_humidity": { "name": "Absolute Humidity" },
+      "enthalpy": { "name": "Air Enthalpy" },
+      "humidex": { "name": "Humidex" },
+      "perception": { "name": "Thermal Perception" },
+      "mold_risk": { "name": "Mold Risk (Critical Surface)" }
     },
     "number": {
       "exterior_envelope_ratio": {

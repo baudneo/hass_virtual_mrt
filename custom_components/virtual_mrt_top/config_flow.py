@@ -3,13 +3,11 @@
 from __future__ import annotations
 import voluptuous as vol
 from homeassistant import config_entries
-
 from homeassistant.const import CONF_NAME, Platform
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.selector import SelectSelectorMode
 
-from . import DEFAULT_AIR_SPEED_STILL
 from .const import (
     DOMAIN,
     CONF_ROOM_PROFILE,
@@ -19,6 +17,7 @@ from .const import (
     CONF_AIR_TEMP_SOURCE,
     CONF_WEATHER_ENTITY,
     CONF_SOLAR_SENSOR,
+    # --- NEW CONVECTIVE INPUTS ---
     CONF_CLIMATE_ENTITY,
     CONF_WINDOW_STATE_SENSOR,
     CONF_DOOR_STATE_SENSOR,
@@ -28,15 +27,15 @@ from .const import (
     DEFAULT_ORIENTATION,
     CONF_IS_RADIANT,
     CONF_RH_SENSOR,
+    CONF_WALL_SURFACE_SENSOR,
+    DEFAULT_AIR_SPEED_STILL,
 )
-
-OPTIONAL_ENTITY_SCHEMA = vol.All(vol.Any(str, None), selector.EntitySelector)
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Virtual MRT."""
 
-    VERSION = 2
+    VERSION = 3
     MINOR_VERSION = 0
 
     async def async_step_user(self, user_input=None):
@@ -71,7 +70,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         )
                     ),
                     vol.Required(
-                        CONF_ORIENTATION, default=DEFAULT_ORIENTATION
+                        CONF_ORIENTATION, default="S"
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
                             options=ORIENTATION_OPTIONS,
@@ -81,39 +80,38 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         CONF_IS_RADIANT, default=False
                     ): selector.BooleanSelector(),
-                    # --- OPTIONAL ENTITIES (Using Helper for Robust Validation) ---
-                    vol.Optional(CONF_CLIMATE_ENTITY): OPTIONAL_ENTITY_SCHEMA(
-                        selector.EntitySelectorConfig(domain=Platform.CLIMATE)
+                    # --- OPTIONAL ENTITIES (Standard Selectors - Strings for Domains) ---
+                    vol.Optional(CONF_CLIMATE_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="climate")
                     ),
-                    vol.Optional(CONF_RH_SENSOR): OPTIONAL_ENTITY_SCHEMA(
+                    vol.Optional(CONF_SOLAR_SENSOR): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="sensor")
+                    ),
+                    vol.Optional(CONF_RH_SENSOR): selector.EntitySelector(
                         selector.EntitySelectorConfig(
-                            domain=Platform.SENSOR, device_class="humidity"
+                            domain="sensor", device_class="humidity"
                         )
                     ),
-                    vol.Optional(CONF_SOLAR_SENSOR): OPTIONAL_ENTITY_SCHEMA(
-                        selector.EntitySelectorConfig(domain=Platform.SENSOR)
+                    vol.Optional(CONF_FAN_ENTITY): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="fan")
                     ),
-                    vol.Optional(CONF_FAN_ENTITY): OPTIONAL_ENTITY_SCHEMA(
-                        selector.EntitySelectorConfig(domain=Platform.FAN)
+                    vol.Optional(CONF_WINDOW_STATE_SENSOR): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="binary_sensor")
                     ),
-                    vol.Optional(CONF_WINDOW_STATE_SENSOR): OPTIONAL_ENTITY_SCHEMA(
-                        selector.EntitySelectorConfig(domain=Platform.BINARY_SENSOR)
+                    vol.Optional(CONF_DOOR_STATE_SENSOR): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="binary_sensor")
                     ),
-                    vol.Optional(CONF_DOOR_STATE_SENSOR): OPTIONAL_ENTITY_SCHEMA(
-                        selector.EntitySelectorConfig(domain=Platform.BINARY_SENSOR)
-                    ),
-                    vol.Optional(
-                        CONF_SHADING_ENTITY,
-                    ): OPTIONAL_ENTITY_SCHEMA(
+                    vol.Optional(CONF_SHADING_ENTITY): selector.EntitySelector(
                         selector.EntitySelectorConfig(
-                            domain=[
-                                Platform.COVER,
-                                Platform.BINARY_SENSOR,
-                                Platform.SENSOR,
-                                Platform.NUMBER,
-                            ]
+                            domain=["cover", "binary_sensor", "sensor", "input_number"]
                         )
                     ),
+                    vol.Optional(CONF_WALL_SURFACE_SENSOR): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="sensor", device_class="temperature"
+                        )
+                    ),
+                    # --- END OPTIONAL ENTITIES ---
                     vol.Optional(
                         CONF_MANUAL_AIR_SPEED, default=DEFAULT_AIR_SPEED_STILL
                     ): selector.NumberSelector(
@@ -142,7 +140,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handles options flow for the component."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        pass  # Base class handles config_entry assignment
+        """Initialize options flow."""
+        self.config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
@@ -156,6 +155,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
             return self.async_create_entry(title="", data=None)
 
+        # --- DATA RETRIEVAL HELPER ---
         def _get_data(string_key, constant_key, default=None):
             val = self.config_entry.data.get(string_key)
             if val is None:
@@ -165,9 +165,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return val
 
         # Retrieve current values
+        # NOTE: We keep required sensor sources here so users can update them.
         air_temp = _get_data("air_temp_source", CONF_AIR_TEMP_SOURCE)
         orientation = _get_data("orientation", CONF_ORIENTATION, DEFAULT_ORIENTATION)
         weather = _get_data("weather_entity", CONF_WEATHER_ENTITY)
+
         solar = _get_data("solar_sensor", CONF_SOLAR_SENSOR)
         rh = _get_data("rh_sensor", CONF_RH_SENSOR)
 
@@ -175,25 +177,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fan = _get_data("fan_entity", CONF_FAN_ENTITY)
         window = _get_data("window_state_sensor", CONF_WINDOW_STATE_SENSOR)
         door = _get_data("door_state_sensor", CONF_DOOR_STATE_SENSOR)
-        manual_speed = _get_data(
-            "manual_air_speed", CONF_MANUAL_AIR_SPEED, DEFAULT_AIR_SPEED_STILL
-        )
+        manual_speed = _get_data("manual_air_speed", CONF_MANUAL_AIR_SPEED, DEFAULT_AIR_SPEED_STILL)
         shading = _get_data("shading_entity", CONF_SHADING_ENTITY)
-        is_radiant = _get_data(CONF_IS_RADIANT, CONF_IS_RADIANT, False)
+
+        is_radiant = _get_data("is_radiant_heating", CONF_IS_RADIANT, False)
+        wall_sensor = _get_data("wall_surface_sensor", CONF_WALL_SURFACE_SENSOR)
 
         schema = {
-            # Required fields still need 'default'
+            # Required fields
             vol.Required("air_temp_source", default=air_temp): selector.EntitySelector(
                 selector.EntitySelectorConfig(
-                    domain=Platform.SENSOR, device_class="temperature"
+                    domain="sensor", device_class="temperature"
                 )
             ),
-            vol.Optional(
-                "rh_sensor", description={"suggested_value": rh}
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain=Platform.SENSOR, device_class="humidity"
-                )
+            vol.Required("weather_entity", default=weather): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="weather")
             ),
             vol.Required("orientation", default=orientation): selector.SelectSelector(
                 selector.SelectSelectorConfig(
@@ -201,39 +199,48 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
-            vol.Required("weather_entity", default=weather): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=Platform.WEATHER)
-            ),
-            # Optional fields using 'suggested_value'
+            vol.Required(
+                "is_radiant_heating", default=is_radiant
+            ): selector.BooleanSelector(),
+            # Optional fields with suggested_value (Strings for Domains)
             vol.Optional(
                 "solar_sensor", description={"suggested_value": solar}
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                "rh_sensor", description={"suggested_value": rh}
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=Platform.SENSOR)
+                selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
             ),
             vol.Optional(
                 "climate_entity", description={"suggested_value": climate}
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=Platform.CLIMATE)
-            ),
-            vol.Required(
-                CONF_IS_RADIANT, description={"suggested_value": is_radiant}
-            ): selector.BooleanSelector(),
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
             vol.Optional(
                 "fan_entity", description={"suggested_value": fan}
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=Platform.FAN)
-            ),
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="fan")),
             vol.Optional(
                 "window_state_sensor", description={"suggested_value": window}
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=Platform.BINARY_SENSOR)
+                selector.EntitySelectorConfig(domain="binary_sensor")
             ),
             vol.Optional(
                 "door_state_sensor", description={"suggested_value": door}
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=Platform.BINARY_SENSOR)
+                selector.EntitySelectorConfig(domain="binary_sensor")
             ),
-            # Number selector is safe with 'default' since it has a fallback of 0.1
+            vol.Optional(
+                "shading_entity", description={"suggested_value": shading}
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["cover", "binary_sensor", "sensor", "input_number"]
+                )
+            ),
+            vol.Optional(
+                "wall_surface_sensor", description={"suggested_value": wall_sensor}
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor", device_class="temperature"
+                )
+            ),
             vol.Optional(
                 "manual_air_speed", default=manual_speed
             ): selector.NumberSelector(
@@ -243,18 +250,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     step=0.1,
                     mode=selector.NumberSelectorMode.BOX,
                     unit_of_measurement="m/s",
-                )
-            ),
-            vol.Optional(
-                "shading_entity", description={"suggested_value": shading}
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain=[
-                        Platform.COVER,
-                        Platform.BINARY_SENSOR,
-                        Platform.SENSOR,
-                        Platform.NUMBER,
-                    ]
                 )
             ),
         }

@@ -10,7 +10,7 @@
           "weather_entity": "Weather Entity",
           "room_profile": "Room Profile",
           "orientation": "Main Window Orientation",
-          "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor (Optional)",
+          "solar_sensor": "Solar Irradiation Sensor (Optional)",
           "climate_entity": "HVAC Climate/Thermostat Entity (Optional)",
           "fan_entity": "Local Fan/Ceiling Fan Entity (Optional)",
           "window_state_sensor": "Window Open Binary Sensor (Optional)",
@@ -18,7 +18,8 @@
           "manual_air_speed": "Manual Air Speed (m/s)",
           "shading_entity": "Blinds/Cover Entity (Optional)",
           "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)",
-          "rh_sensor": "Relative Humidity Sensor (Optional)"
+          "rh_sensor": "Relative Humidity Sensor (Optional)",
+          "wall_surface_sensor": "Calibration Sensor: Interior Wall Surface Temp (Optional)"
         }
       }
     }
@@ -32,7 +33,7 @@
           "air_temp_source": "Room Air Temperature Sensor",
           "weather_entity": "Weather Entity",
           "orientation": "Main Window Orientation",
-          "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor (Optional)",
+          "solar_sensor": "Solar Irradiation Sensor (Optional)",
           "climate_entity": "HVAC Climate/Thermostat Entity (Optional)",
           "fan_entity": "Local Fan/Ceiling Fan Entity (Optional)",
           "window_state_sensor": "Window Open Binary Sensor (Optional)",
@@ -40,7 +41,8 @@
           "manual_air_speed": "Manual Air Speed (m/s)",
           "shading_entity": "Blinds/Cover Entity (Optional)",
           "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)",
-          "rh_sensor": "Relative Humidity Sensor (Optional)"
+          "rh_sensor": "Relative Humidity Sensor (Optional)",
+          "wall_surface_sensor": "Calibration Sensor: Interior Wall Surface Temp (Optional)"
         }
       }
     }
@@ -79,7 +81,8 @@
       "enthalpy": { "name": "Air Enthalpy" },
       "humidex": { "name": "Humidex" },
       "perception": { "name": "Thermal Perception" },
-      "mold_risk": { "name": "Mold Risk (Critical Surface)" }
+      "mold_risk": { "name": "Mold Risk (Critical Surface)" },
+      "calibration_k": { "name": "Estimated Insulation Factor" }
     },
     "number": {
       "exterior_envelope_ratio": {

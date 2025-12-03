@@ -77,6 +77,57 @@ The integration allows you to save a library of custom profiles per room.
 
 ---
 
+## 🧠 Model Tuning (Self-Calibration Sensor)
+
+Instead of guessing your wall's insulation quality ($k_{loss}$), you can measure it. If you configure a **Calibration Sensor** (Wall Surface Temp), this integration creates a diagnostic sensor: **Estimated Insulation Factor**.
+
+### 1. Prerequisites (Wall Surface Sensor)
+
+To use the calibration service, you must install a temperature sensor on the **interior surface of an exterior wall**. The placement of this sensor is critical for the math to work correctly.
+
+**Metric Measured:** $T_{si}$ (Temperature Surface Internal).
+
+#### 📍 Sensor Placement Guide
+
+| Wall Type                                         | Best Placement                                                                                                             | Notes & Warnings                                                                                                                                                                                                                                                           |
+|:--------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------|:---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Wood Frame** (Drywall + Insulation)             | **Center of a Stud Bay.** Place the sensor on the drywall in the middle of two studs (tapping the wall will sound hollow). | **Do NOT puncture the vapor barrier.** Do not drill into the wall. Mount the sensor on the surface. <br>• **Pros:** Accurately measures the insulation performance.<br>• **Cons:** Ignores "thermal bridging" (the studs are colder than the insulation).                  |
+| **Masonry / Solid** (Brick, Concrete, Stone)      | **Middle of the Wall.** Place on the plaster/render, at least 1m away from corners or windows.                             | **High Thermal Mass:** Masonry changes temperature very slowly. Ensure the sensor has been mounted for 24 hours before calibrating.<br>• **Pros:** Uniform temperature makes placement easier.<br>• **Cons:** Surface can be rough, making good thermal contact difficult. |
+| **Retrofit / Hybrid** (Interior Insulation added) | **On the new interior surface.**                                                                                           | Treat this like a Wood Frame wall. We want to measure the surface the occupant *sees*.                                                                                                                                                                                     |
+
+#### 🛠️ Mounting Best Practices (The "Insulation Cap" Trick)
+
+If you simply tape a sensor to the wall, it will read an average of the Wall Temperature and the Room Air Temperature. **This is bad.** You want it to read *only* the wall.
+
+1. **Thermal Contact:** Use a tiny dab of thermal paste or flat double-sided tape to stick the sensor chip/probe flat against the wall.
+2. **Embed below surface:** If possible, try to embed the sensor slightly below the wall surface (e.g., in a small groove or recess) to improve contact.
+3. **Isolate from Room:** Tape a small piece of **foam, bubble wrap, or heavy tape** over the *back* of the sensor.
+    * *Why?* This insulates the sensor from the warm room air, forcing it to equalize with the cold wall.
+4. **Avoid Drafts:** Do not place near heating vents, radiators, or window frames.
+
+> [!IMPORTANT]
+> Use quality sensors (esphome with SHT40 probe type communicating via RS485 is ideal to allow long cables) for best accuracy.
+> Avoid cheap sensors as the RH may become saturated in cold conditions leading to erroneous readings.
+
+### How to use it
+1.  **Install:** Place a temperature sensor on the interior surface of an exterior wall (see placement guide above).
+2.  **Wait:** Wait for a cold night (at least $10^{\circ}\text{C}$ colder outside than inside).
+3.  **Observe:** Check the **Estimated Insulation Factor** sensor history in the morning.
+4.  **Tune:** Look for the stable value it settled on during the night (e.g., `0.18`).
+5.  **Apply:** Go to "Configure" on your Virtual MRT device and update your **Insulation Loss Factor** number entity to match.
+
+> **Note:** The sensor will show `Unavailable` during the day or when outdoor temperatures are too mild, to prevent bad math caused by solar gain or low thermal gradients.
+
+
+**What it does:**
+It runs the physics model in reverse. By knowing the indoor air temp ($T_{air}$), the outdoor temp ($T_{out}$), and 
+the actual wall result ($T_{wall}$), it calculates the exact thermal transmittance ratio ($k_{loss}$) required to 
+produce that result.
+
+$$k_{loss} \approx \frac{T_{air} - T_{wall}}{T_{air} - T_{out}}$$
+
+---
+
 ## 🌬️ Dynamic Comfort Factors ($T_{op}$ Modifiers)
 
 The integration uses several optional inputs to dynamically calculate the effective Air Speed ($v_{\text{air}}$) and adjust the Mean Radiant Temperature ($\text{MRT}$) based on user actions (opening a window, turning on a fan, or activating radiant heat).
@@ -88,14 +139,14 @@ The integration uses several optional inputs to dynamically calculate the effect
 
 The final Air Speed ($v_{\text{air}}$) is used to determine the $T_{\text{op}}$ Convective Weighting Factor ($A_{\text{Radiant}}$). The logic uses a **"Max Wins"** approach—it calculates potential air speeds from all sources and uses the highest one.
 
-| Input | Speed Contribution |
-|:---|:---|
-| **Door State Sensor** | If `on`: **0.8 m/s** (Drafty). |
-| **Window State Sensor** | If `on`: **0.5 m/s** (Breezy). |
+| Input                   | Speed Contribution                                                                                                                                      |
+|:------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Door State Sensor**   | If `on`: **0.8 m/s** (Drafty).                                                                                                                          |
+| **Window State Sensor** | If `on`: **0.5 m/s** (Breezy).                                                                                                                          |
 | **HVAC Climate Entity** | If `hvac_action` is active (heating/cooling/fan): Uses the **HVAC Airflow Speed** setting (default 0.4 m/s). *Ignored if "Radiant Heating" is enabled.* |
-| **Fan Entity** | Uses mapped speed (`low`: 0.3, `med`: 0.5, `high`: 0.8). |
-| **Manual Air Speed** | Uses the value set by the user (if > 0.1). |
-| **Default** | **0.1 m/s** (Still Air Baseline). |
+| **Fan Entity**          | Uses mapped speed (`low`: 0.3, `med`: 0.5, `high`: 0.8).                                                                                                |
+| **Manual Air Speed**    | Uses the value set by the user (if > 0.1).                                                                                                              |
+| **Default**             | **0.1 m/s** (Still Air Baseline).                                                                                                                       |
 
 ### 2. Radiant Heating Model
 

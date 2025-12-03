@@ -1,6 +1,7 @@
 """Sensor platform for Virtual MRT."""
 
 from __future__ import annotations
+
 import logging
 import math
 
@@ -8,13 +9,14 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
     SensorStateClass,
+    EntityCategory
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature, CONF_NAME
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.helpers import entity_registry as er
 
 from . import CONF_IS_RADIANT
 from .const import (
@@ -43,6 +45,7 @@ from .const import (
     CONF_RADIANT_TYPE,
     ORIENTATION_DEGREES,
     CONF_RH_SENSOR,
+    CONF_WALL_SURFACE_SENSOR,
 )
 from .device_info import get_device_info
 
@@ -70,6 +73,8 @@ async def async_setup_entry(
                 VirtualMoldRiskSensor(hass, entry, device_info),
             ]
         )
+    if config.get(CONF_WALL_SURFACE_SENSOR):
+        entities.append(VirtualCalibrationSensor(hass, entry, device_info))
     async_add_entities(entities)
 
 
@@ -101,6 +106,7 @@ class VirtualMRTSensor(SensorEntity):
         self.entity_window = self._config.get(CONF_WINDOW_STATE_SENSOR)
         self.entity_door = self._config.get(CONF_DOOR_STATE_SENSOR)
         self.entity_shading = self._config.get(CONF_SHADING_ENTITY)
+        self.entity_wall_sensor = self._config.get(CONF_WALL_SURFACE_SENSOR)
         orient_code = self._config[CONF_ORIENTATION]
         self.orientation_degrees = ORIENTATION_DEGREES.get(orient_code, 180)
         self._radiant_boost_stored = 0.0
@@ -167,6 +173,8 @@ class VirtualMRTSensor(SensorEntity):
         entities_to_track = [self.entity_air, self.entity_weather, "sun.sun"]
 
         # Add optional entity IDs (only if configured)
+        if self.entity_wall_sensor:
+            entities_to_track.append(self.entity_wall_sensor)
         if self.entity_solar:
             entities_to_track.append(self.entity_solar)
         if self.entity_climate:
@@ -1127,3 +1135,116 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
         else:
             self._attributes["risk_level"] = "Critical"
             self._attr_icon = "mdi:alert-decagram"
+
+class VirtualCalibrationSensor(SensorEntity):
+    """
+    Diagnostic sensor that calculates the theoretical k_loss based on
+    measured wall temperatures.
+    """
+    _attr_has_entity_name = True
+    _attr_name = "Estimated Insulation Factor"
+    _attr_icon = "mdi:ruler-square-compass"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC # Keeps it out of the main dashboard
+
+    # We don't set a unit because it's a factor (ratio), but we could use "k"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, device_info):
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_calibration_k"
+        self._attr_device_info = device_info
+
+        self.entity_air = entry.data[CONF_AIR_TEMP_SOURCE]
+        self.entity_weather = entry.data[CONF_WEATHER_ENTITY]
+        self.entity_wall = entry.data[CONF_WALL_SURFACE_SENSOR]
+
+        # Attributes to help the user debug
+        self._attributes = {}
+
+    @property
+    def extra_state_attributes(self):
+        return self._attributes
+
+    async def async_added_to_hass(self):
+        """Track sensors."""
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                [self.entity_air, self.entity_weather, self.entity_wall, "sun.sun"],
+                self._handle_update
+            )
+        )
+        self._handle_update(None)
+
+    @callback
+    def _handle_update(self, event):
+        # 1. Check Sun (Must be down for valid reading)
+        sun = self.hass.states.get("sun.sun")
+        is_daytime = sun and sun.state == "above_horizon"
+
+        # 2. Get Temperatures
+        try:
+            t_air = float(self.hass.states.get(self.entity_air).state)
+            t_wall = float(self.hass.states.get(self.entity_wall).state)
+
+            # Get Outdoor Temp (Prefer raw temp for calibration as wind chill
+            # effects are complex, but using T_out allows pure U-value estimation)
+            w_state = self.hass.states.get(self.entity_weather)
+            t_out = float(w_state.attributes.get("temperature"))
+        except (ValueError, AttributeError, TypeError):
+            self._attr_native_value = None
+            self.async_write_ha_state()
+            return
+
+        # 3. Calculate Delta T (Indoor - Outdoor)
+        # We need a significant drop to get a valid reading. > 10°C is good practice.
+        delta_t_total = t_air - t_out
+
+        self._attributes = {
+            "t_air": t_air,
+            "t_wall": t_wall,
+            "t_out": t_out,
+            "delta_t": round(delta_t_total, 1),
+            "valid_conditions": False
+        }
+
+        # 4. Validity Checks
+        if is_daytime:
+            self._attributes["status"] = "Invalid: Sun is up"
+            self._attr_native_value = None # Or keep last known
+        elif delta_t_total < 10:
+            self._attributes["status"] = "Invalid: Low Delta T (<10°C)"
+            self._attr_native_value = None
+        else:
+            # 5. The Math
+            # Temp Drop across the room air film + wall = T_air - T_out
+            # Temp Drop inside the room = T_air - T_wall
+            # Factor k = (T_air - T_wall) / (T_air - T_out)
+
+            # Note: This is an approximation assuming the "2.5" multiplier
+            # used in the Mold Sensor logic is implicit in the k_loss definition.
+            # However, for the raw k_loss input, we simply want the ratio of heat lost.
+
+            # If our model is: T_surf = T_air - (Delta_T * k_loss * 2.5)
+            # Then: T_air - T_surf = Delta_T * k_loss * 2.5
+            # And: k_loss = (T_air - T_surf) / (Delta_T * 2.5)
+
+            drop_internal = t_air - t_wall
+
+            if drop_internal < 0:
+                # Wall is warmer than air? (Heating is hitting sensor?)
+                self._attributes["status"] = "Invalid: Wall warmer than air"
+                self._attr_native_value = None
+            else:
+                # Calculate k based on the formula used in the Mold Sensor
+                calc_k = drop_internal / (delta_t_total * 2.5)
+
+                # Clamp to realistic bounds
+                final_k = min(1.0, max(0.0, calc_k))
+
+                self._attr_native_value = round(final_k, 3)
+                self._attributes["status"] = "Valid Calculation"
+                self._attributes["valid_conditions"] = True
+
+        self.async_write_ha_state()

@@ -56,7 +56,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # --- CHANGED: Register update listener with async_on_unload ---
+    # --- Register update listener with async_on_unload ---
     # entry.add_update_listener returns a callable that removes the listener.
     # entry.async_on_unload registers that callable to run when the entry unloads.
     entry.async_on_unload(entry.add_update_listener(async_update_listener))

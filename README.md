@@ -145,6 +145,7 @@ I take the output sensor `Estimated power production - now` convert it's value d
 HASS helper template sensor and setting its `device_class` to `irradiation` and `unit_of_measurement` to `W/m²`.
 If the sensor outputs `123 W`, it is converted to `123 W/m²` and the template sensor is used as the dedicated Global Solar
 Radiation Sensor in this integration.
+
 ---
 
 ## 🧠 Advanced Section: The Calculation Flow

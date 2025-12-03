@@ -14,7 +14,8 @@ I ported this logic from a blueprint that [@Ecronika](https://github.com/Ecronik
 
 ## 📝 Note
 There is already a custom integration named ['Thermal Comfort' ](https://github.com/dolezsa/thermal_comfort) that uses air temp and relative humidity to expose some perception sensors alongside dew point, frost point and heat index/humidex.
-This integration is different in that it focuses on **Mean Radiant Temperature (MRT)** and **Operative Temperature ($T_{op}$)**, which are more advanced concepts from building science that better represent how humans perceive temperature in a space based on the surrounding surfaces and air movement.
+This integration is different in that it exposes **Mean Radiant Temperature (MRT)** and **Operative Temperature ($T_{op}$)**, which are more advanced concepts from building science that better represent how humans perceive temperature in a space based on the surrounding surfaces and air movement.
+We also expose psychometric sensors when an optional relative humidity sensor is configured.
 
 ---
 
@@ -203,21 +204,43 @@ Radiation Sensor in this integration.
 
 The Mean Radiant Temperature ($\text{MRT}_{\text{final}}$) calculation is a three-step process executed whenever an input sensor changes state:
 
-1.  **Convective Weighting ($A_{\text{Radiant}}$):** The system first calculates the Radiant Weighting Factor ($A_{\text{Radiant}}$) based on the derived Air Speed ($v_{\text{air}}$) using ASHRAE simplified coefficients ($h_c$ and $h_r$):
-    $$A_{\text{Radiant}} = \frac{h_r}{h_c + h_r}$$
+1. **Convective Weighting ($A_{\text{Radiant}}$):**  
+   The system first calculates the Radiant Weighting Factor based on the derived Air Speed using ASHRAE simplified coefficients:
 
-2.  **Instantaneous Calculation ($\text{MRT}_{\text{calc}}$):** The physics model determines the raw temperature jump. The $\text{Solar}_{\text{term}}$ is multiplied by the **Shading Factor**, and the **Radiant Boost** is added if heating is active.
-    <br>
-    $$\text{MRT}_{\text{calc}} = T_{\text{air}} - \underbrace{\text{Loss}_{\text{term}}}_{\text{Heat escaping outside}} + \underbrace{\text{Solar}_{\text{term}} \times \text{Shade}_{\text{Factor}}}_{\text{Net heat entering windows}} + \underbrace{\text{Radiant}_{\text{Boost}}}_{\text{Active heat source}}$$
-    <br>
+$$
+A_{\text{Radiant}} = \frac{h_r}{h_c + h_r}
+$$
 
-3.  **Clamping & Smoothing:** The result is clamped to realistic bounds and smoothed by the Thermal Smoothing Factor ($\alpha$). $\text{MRT}_{\text{final}}$ is the result.
-    <br>
-    $$\text{MRT}_{\text{final}} = (1 - \alpha) \times \text{MRT}_{\text{prev}} + \alpha \times \text{MRT}_{\text{clamped}}$$
-    <br>
+2. **Instantaneous Calculation ($\text{MRT}_{\text{calc}}$):**  
+   The physics model determines the raw temperature jump. The Solar term is multiplied by the Shading Factor, and the Radiant Boost is added if heating is active.
 
-4.  **Operative Temperature ($T_{op}$):** The final reported temperature uses the dynamic weighting derived in step 1.
-    $$T_{\text{op}} = A_{\text{Radiant}} \cdot \text{MRT}_{\text{final}} + (1 - A_{\text{Radiant}}) \cdot T_{\text{air}}$$
+$$
+\text{MRT}_{\text{calc}} =
+T_{\text{air}}
+- \underbrace{\text{Loss term}}_{\text{Heat escaping outside}}
++ \underbrace{\text{Solar term} \times \text{Shade Factor}}_{\text{Net heat entering windows}}
++ \underbrace{\text{Radiant Boost}}_{\text{Active heat source}}
+$$
+
+3. **Clamping & Smoothing:**  
+   The result is clamped and smoothed by the Thermal Smoothing Factor ($\alpha$):
+
+$$
+\text{MRT}_{\text{final}}
+= (1 - \alpha)\,\text{MRT}_{\text{prev}}
++ \alpha\,\text{MRT}_{\text{clamped}}
+$$
+
+4. **Operative Temperature ($T_{\text{op}}$):**  
+   The final reported temperature uses the dynamic weighting derived in step 1:
+
+$$
+T_{\text{op}}
+= A_{\text{Radiant}} \cdot \text{MRT}_{\text{final}}
++ (1 - A_{\text{Radiant}})\cdot T_{\text{air}}
+$$
+
+
 ---
 
 ## 💧 Psychrometric & Moisture Data (Optional)

@@ -172,7 +172,6 @@ $$
 $$
 T_{\text{op}} = A_{\text{Radiant}} \cdot \text{MRT}_{\text{final}} + (1 - A_{\text{Radiant}}) \cdot T_{\text{air}}
 $$
- 
 
 ---
 

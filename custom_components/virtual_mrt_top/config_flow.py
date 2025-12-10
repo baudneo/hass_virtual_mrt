@@ -6,6 +6,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME, Platform
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 from homeassistant.helpers.selector import SelectSelectorMode
 
@@ -53,7 +54,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    # --- CORE INPUTS ---
+                    # --- SECTION 1: CORE (Always Visible) ---
                     vol.Required(CONF_NAME): str,
                     vol.Required(CONF_AIR_TEMP_SOURCE): selector.EntitySelector(
                         selector.EntitySelectorConfig(
@@ -63,7 +64,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(CONF_WEATHER_ENTITY): selector.EntitySelector(
                         selector.EntitySelectorConfig(domain="weather")
                     ),
-                    # --- PROFILE & ORIENTATION ---
                     vol.Required(
                         CONF_ROOM_PROFILE, default="one_wall_large_window"
                     ): selector.SelectSelector(
@@ -84,47 +84,122 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required(
                         CONF_IS_RADIANT, default=False
                     ): selector.BooleanSelector(),
-                    # --- OPTIONAL ENTITIES (Standard Selectors - Strings for Domains) ---
-                    vol.Optional(CONF_CLIMATE_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="climate")
-                    ),
-                    vol.Optional(CONF_SOLAR_SENSOR): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="sensor")
-                    ),
-                    vol.Optional(CONF_RH_SENSOR): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="sensor", device_class="humidity"
+                    # --- SECTION 2: OPTIONAL SENSORS ---
+                    vol.Optional("sensors_section"): section(
+                        vol.Schema(
+                            {
+                                vol.Optional(
+                                    CONF_SOLAR_SENSOR
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(domain="sensor")
+                                ),
+                                vol.Optional(CONF_RH_SENSOR): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain="sensor", device_class="humidity"
+                                    )
+                                ),
+                                vol.Optional(
+                                    CONF_WALL_SURFACE_SENSOR
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain="sensor", device_class="temperature"
+                                    )
+                                ),
+                                vol.Optional(
+                                    CONF_PRESSURE_SENSOR
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain="sensor",
+                                        device_class=[
+                                            "atmospheric_pressure",
+                                            "pressure",
+                                        ],
+                                    )
+                                ),
+                                vol.Optional(
+                                    CONF_OUTDOOR_TEMP_SENSOR
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain="sensor", device_class="temperature"
+                                    )
+                                ),
+                                vol.Optional(
+                                    CONF_OUTDOOR_HUMIDITY_SENSOR
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain="sensor", device_class="humidity"
+                                    )
+                                ),
+                                vol.Optional(
+                                    CONF_WIND_SPEED_SENSOR
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain="sensor", device_class="wind_speed"
+                                    )
+                                ),
+                            }
                         )
                     ),
-                    vol.Optional(CONF_FAN_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="fan")
-                    ),
-                    vol.Optional(CONF_WINDOW_STATE_SENSOR): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="binary_sensor")
-                    ),
-                    vol.Optional(CONF_DOOR_STATE_SENSOR): selector.EntitySelector(
-                        selector.EntitySelectorConfig(domain="binary_sensor")
-                    ),
-                    vol.Optional(CONF_SHADING_ENTITY): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain=["cover", "binary_sensor", "sensor", "input_number"]
+                    # --- SECTION 3: CONVECTION & AIRFLOW ---
+                    vol.Optional("convection_section"): section(
+                        vol.Schema(
+                            {
+                                vol.Optional(
+                                    CONF_CLIMATE_ENTITY
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain=Platform.CLIMATE
+                                    )
+                                ),
+                                vol.Optional(CONF_FAN_ENTITY): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(domain=Platform.FAN)
+                                ),
+                                vol.Optional(
+                                    CONF_WINDOW_STATE_SENSOR
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain=Platform.BINARY_SENSOR
+                                    )
+                                ),
+                                vol.Optional(
+                                    CONF_DOOR_STATE_SENSOR
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain=Platform.BINARY_SENSOR
+                                    )
+                                ),
+                                vol.Optional(
+                                    CONF_MANUAL_AIR_SPEED,
+                                    default=DEFAULT_AIR_SPEED_STILL,
+                                ): selector.NumberSelector(
+                                    selector.NumberSelectorConfig(
+                                        min=0.0,
+                                        max=1.5,
+                                        step=0.1,
+                                        mode=selector.NumberSelectorMode.BOX,
+                                        unit_of_measurement="m/s",
+                                    )
+                                ),
+                            }
                         )
                     ),
-                    vol.Optional(CONF_WALL_SURFACE_SENSOR): selector.EntitySelector(
-                        selector.EntitySelectorConfig(
-                            domain="sensor", device_class="temperature"
-                        )
-                    ),
-                    # --- END OPTIONAL ENTITIES ---
-                    vol.Optional(
-                        CONF_MANUAL_AIR_SPEED, default=DEFAULT_AIR_SPEED_STILL
-                    ): selector.NumberSelector(
-                        selector.NumberSelectorConfig(
-                            min=0.0,
-                            max=1.5,
-                            step=0.1,
-                            mode=selector.NumberSelectorMode.BOX,
-                            unit_of_measurement="m/s",
+                    # --- SECTION 4: ADVANCED ---
+                    vol.Optional("advanced_section"): section(
+                        vol.Schema(
+                            {
+                                vol.Optional(
+                                    CONF_SHADING_ENTITY
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain=[
+                                            Platform.COVER,
+                                            Platform.BINARY_SENSOR,
+                                            Platform.SENSOR,
+                                            Platform.NUMBER,
+                                        ]
+                                    )
+                                ),
+                            }
                         )
                     ),
                 }
@@ -192,7 +267,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         pressure = _get_data("pressure_sensor", CONF_PRESSURE_SENSOR)
 
         schema = {
-            # Required fields
+            # --- CORE ---
             vol.Required("air_temp_source", default=air_temp): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain="sensor", device_class="temperature"
@@ -203,61 +278,126 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             vol.Required("orientation", default=orientation): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=ORIENTATION_OPTIONS,
-                    mode=SelectSelectorMode.DROPDOWN,
+                    options=ORIENTATION_OPTIONS, mode=SelectSelectorMode.DROPDOWN
                 )
             ),
             vol.Required(
                 "is_radiant_heating", default=is_radiant
             ): selector.BooleanSelector(),
-            # Optional fields with suggested_value (Strings for Domains)
-            vol.Optional(
-                "solar_sensor", description={"suggested_value": solar}
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                "rh_sensor", description={"suggested_value": rh}
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
-            ),
-            vol.Optional(
-                "climate_entity", description={"suggested_value": climate}
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
-            vol.Optional(
-                "fan_entity", description={"suggested_value": fan}
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="fan")),
-            vol.Optional(
-                "window_state_sensor", description={"suggested_value": window}
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="binary_sensor")
-            ),
-            vol.Optional(
-                "door_state_sensor", description={"suggested_value": door}
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="binary_sensor")
-            ),
-            vol.Optional(
-                "shading_entity", description={"suggested_value": shading}
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain=["cover", "binary_sensor", "sensor", "input_number"]
+            # --- SECTION: OPTIONAL SENSORS ---
+            vol.Optional("sensors_section"): section(
+                vol.Schema(
+                    {
+                        vol.Optional(
+                            "solar_sensor", description={"suggested_value": solar}
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(domain="sensor")
+                        ),
+                        vol.Optional(
+                            "rh_sensor", description={"suggested_value": rh}
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(
+                                domain="sensor", device_class="humidity"
+                            )
+                        ),
+                        vol.Optional(
+                            "wall_surface_sensor",
+                            description={"suggested_value": wall_sensor},
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(
+                                domain="sensor", device_class="temperature"
+                            )
+                        ),
+                        vol.Optional(
+                            "pressure_sensor", description={"suggested_value": pressure}
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(
+                                domain="sensor",
+                                device_class=["atmospheric_pressure", "pressure"],
+                            )
+                        ),
+                        vol.Optional(
+                            "outdoor_temp_sensor",
+                            description={"suggested_value": out_temp},
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(
+                                domain="sensor", device_class="temperature"
+                            )
+                        ),
+                        vol.Optional(
+                            "outdoor_humidity_sensor",
+                            description={"suggested_value": out_hum},
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(
+                                domain="sensor", device_class="humidity"
+                            )
+                        ),
+                        vol.Optional(
+                            "wind_speed_sensor", description={"suggested_value": wind}
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(
+                                domain="sensor", device_class="wind_speed"
+                            )
+                        ),
+                    }
                 )
             ),
-            vol.Optional(
-                "wall_surface_sensor", description={"suggested_value": wall_sensor}
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="sensor", device_class="temperature"
+            # --- SECTION: CONVECTION ---
+            vol.Optional("convection_section"): section(
+                vol.Schema(
+                    {
+                        vol.Optional(
+                            "climate_entity", description={"suggested_value": climate}
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(domain=Platform.CLIMATE)
+                        ),
+                        vol.Optional(
+                            "fan_entity", description={"suggested_value": fan}
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(domain=Platform.FAN)
+                        ),
+                        vol.Optional(
+                            "window_state_sensor",
+                            description={"suggested_value": window},
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(domain=Platform.BINARY_SENSOR)
+                        ),
+                        vol.Optional(
+                            "door_state_sensor", description={"suggested_value": door}
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(domain=Platform.BINARY_SENSOR)
+                        ),
+                        vol.Optional(
+                            "manual_air_speed", default=manual_speed
+                        ): selector.NumberSelector(
+                            selector.NumberSelectorConfig(
+                                min=0.0,
+                                max=1.5,
+                                step=0.1,
+                                mode=selector.NumberSelectorMode.BOX,
+                                unit_of_measurement="m/s",
+                            )
+                        ),
+                    }
                 )
             ),
-            vol.Optional(
-                "manual_air_speed", default=manual_speed
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0.0,
-                    max=1.5,
-                    step=0.1,
-                    mode=selector.NumberSelectorMode.BOX,
-                    unit_of_measurement="m/s",
+            # --- SECTION: ADVANCED ---
+            vol.Optional("advanced_section"): section(
+                vol.Schema(
+                    {
+                        vol.Optional(
+                            "shading_entity", description={"suggested_value": shading}
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(
+                                domain=[
+                                    Platform.COVER,
+                                    Platform.BINARY_SENSOR,
+                                    Platform.SENSOR,
+                                    Platform.NUMBER,
+                                ]
+                            )
+                        ),
+                    }
                 )
             ),
         }

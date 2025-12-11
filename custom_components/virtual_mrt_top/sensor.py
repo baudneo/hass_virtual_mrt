@@ -1088,7 +1088,7 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
         # Heuristic: The wall surface is colder than air by a factor of the outdoor delta.
         # A higher k_loss (poor insulation) means a colder wall.
         # Multiplier 2.5 approximates the specific thermal bridge temperature drop based on k_loss.
-        # Formula: T_surf = T_air - (Delta_T * k_loss * Factor)
+        # Formula: T_surf = T_air - (Delta_T * k_loss)
         delta_t = t_air - t_out
 
         # Only calculate drop if it's colder outside.
@@ -1096,7 +1096,7 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
         # but for indoor mold we usually care about winter/shoulder seasons.
         wall_temp_drop = 0.0
         if delta_t > 0:
-            wall_temp_drop = delta_t * k_loss * 2.5
+            wall_temp_drop = delta_t * k_loss
 
         t_surface = t_air - wall_temp_drop
 

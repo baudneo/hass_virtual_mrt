@@ -76,6 +76,7 @@ async def async_setup_entry(
                 VirtualPerceptionSensor(hass, entry, device_info),
                 VirtualMoldRiskSensor(hass, entry, device_info),
                 VirtualHeatFluxSensor(hass, entry, device_info),
+                VirtualPMVSensor(hass, entry, device_info, mrt_sensor),
             ]
         )
     if config.get(CONF_WALL_SURFACE_SENSOR):
@@ -625,7 +626,7 @@ class VirtualMRTSensor(SensorEntity):
         cond = weather_state_obj.state.lower() if weather_state_obj else ""
         is_raining = any(x in cond for x in ["rain", "pour", "snow", "hail"])
         rain_mul = 0.4 if is_raining else 1.0
-        rain_source = "condition_string" if is_raining else "dry"
+        rain_source = "weather_entity_condition_string" if is_raining else "dry"
         self._attributes["rain_multiplier"] = rain_mul
         self._attributes["rain_source"] = rain_source
         elevation = self._get_attr("sun.sun", "elevation", 0.0)
@@ -663,7 +664,7 @@ class VirtualMRTSensor(SensorEntity):
         surface_setpoint = self._get_float(self.id_radiant_temp, 24.0)
         type_state = self.hass.states.get(self.id_radiant_type)
         type_key = type_state.state if type_state else "high_mass"
-        system_props = RADIANT_TYPES.get(type_key, RADIANT_TYPES["high_mass"])
+        system_props = RADIANT_TYPES.get(type_key, RADIANT_TYPES["high_massn"])
         boost_alpha = system_props["alpha"]
         view_factor = system_props["view_factor"]
 
@@ -853,6 +854,105 @@ class VirtualOperativeTempSensor(SensorEntity):
 
 class Psychrometrics:
     """Helper for thermodynamic calculations."""
+
+    @staticmethod
+    def calculate_pmv(t_air, t_mrt, v_air, rh, met, clo):
+        """
+        Calculate PMV (Predicted Mean Vote) using ISO 7730 / ASHRAE 55.
+        """
+        # 1. Convert Inputs
+        ta = t_air
+        tr = t_mrt
+        vel = max(0.1, v_air)  # Min velocity for stability
+        rh_frac = rh / 100.0
+
+        # Metabolism: 1 met = 58.15 W/m2
+        m = met * 58.15
+
+        # External Work (assume 0 for home/office)
+        w = 0.0
+
+        # Internal Heat Production
+        mw = m - w
+
+        # Clothing Insulation: 1 clo = 0.155 m2K/W
+        icl = clo * 0.155
+
+        # Clothing Area Factor (fcl)
+        if icl <= 0.078:
+            fcl = 1.0 + (1.29 * icl)
+        else:
+            fcl = 1.05 + (0.645 * icl)
+
+        # Vapor Pressure (Pa)
+        # Use existing helper but convert hPa -> Pa
+        vp_hpa = Psychrometrics.calculate_vapor_pressure(ta) * rh_frac
+        pa = vp_hpa * 100.0
+
+        # 2. Iterative Calculation for Clothing Surface Temp (t_cl)
+        # Starting guess: t_cl = t_air
+        t_cl = ta
+        t_abs = ta + 273.15
+        tr_abs = tr + 273.15
+
+        # Iteration variables
+        hc = 12.1 * math.sqrt(vel)  # Convective heat transfer coef
+        n_iter = 0
+        eps = 0.00015  # Stopping tolerance
+
+        while n_iter < 150:
+            t_cl_old = t_cl
+            t_cl_abs = t_cl + 273.15
+
+            # Radiative Heat Transfer
+            # h_r = 4 * sigma * f_cl ... simplified for linearization
+            # We compute terms directly in balance equation below
+
+            # Convection coeff (hc) depends on T_cl vs T_air (Natural vs Forced)
+            hc_forced = 12.1 * math.sqrt(vel)
+            hc_natural = 2.38 * abs(t_cl - ta) ** 0.25
+            hc = max(hc_forced, hc_natural)
+
+            # Heat Balance Equation terms
+            # Radiation Term: 3.96*10^-8 * fcl * (Tcl^4 - Tr^4)
+            rad = 3.96 * 10 ** -8 * fcl * (t_cl_abs ** 4 - tr_abs ** 4)
+
+            # Convection Term: fcl * hc * (Tcl - Ta)
+            conv = fcl * hc * (t_cl - ta)
+
+            # T_cl new estimate
+            # T_cl = 35.7 - 0.028(M-W) - I_cl * (Rad + Conv)
+            t_cl_new = (35.7 - 0.028 * mw) - (icl * (rad + conv))
+
+            # Dampening
+            t_cl = (t_cl_new + t_cl_old) / 2.0
+
+            if abs(t_cl - t_cl_old) < eps:
+                break
+            n_iter += 1
+
+        # 3. Calculate Heat Loss Components (ISO 7730)
+        # Skin diffusion
+        hl1 = 3.05 * 0.001 * (5733 - (6.99 * mw) - pa)
+        # Sweat (Latent)
+        if mw > 58.15:
+            hl2 = 0.42 * (mw - 58.15)
+        else:
+            hl2 = 0.0
+        # Latent Respiration
+        hl3 = 1.7 * 0.00001 * m * (5867 - pa)
+        # Dry Respiration
+        hl4 = 0.0014 * m * (34 - ta)
+        # Radiation
+        hl5 = 3.96 * 10 ** -8 * fcl * ((t_cl + 273.15) ** 4 - tr_abs ** 4)
+        # Convection
+        hl6 = fcl * hc * (t_cl - ta)
+
+        # 4. Final PMV Calc
+        ts = 0.303 * math.exp(-0.036 * m) + 0.028
+        pmv = ts * (mw - hl1 - hl2 - hl3 - hl4 - hl5 - hl6)
+
+        return max(-3.5, min(3.5, pmv))  # Clamp to valid range
 
     @staticmethod
     def calculate_humidity_ratio(vp_actual: float, pressure_hpa: float) -> float:
@@ -1565,3 +1665,125 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
 
         self._attributes["wall_surface_temp"] = round(t_surface, 1)
         self._attributes["outdoor_temp"] = t_out
+
+
+class VirtualPMVSensor(SensorEntity):
+    """
+    Calculates Predicted Mean Vote (PMV) for thermal comfort.
+    Inputs: Air Temp, MRT, Humidity, Air Speed, Clothing, Metabolism.
+    """
+    _attr_has_entity_name = True
+    _attr_name = "Thermal Comfort (PMV)"
+    _attr_native_unit_of_measurement = "PMV"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 2
+    translation_key = "pmv"
+    _attr_unique_id_suffix = "pmv"
+    _attr_icon = "mdi:human-handsup"
+
+    def __init__(self, hass, entry, device_info, mrt_sensor):
+        self.hass = hass
+        self._entry = entry
+        self._attr_device_info = device_info
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+        self.mrt_sensor = mrt_sensor  # Reference to the main MRT object
+
+        # Lookups
+        self.id_clo = None
+        self.id_met = None
+
+    async def async_added_to_hass(self):
+        """Register listeners."""
+        registry = er.async_get(self.hass)
+        self.id_clo = registry.async_get_entity_id("number", DOMAIN, f"{self._entry.entry_id}_clothing")
+        self.id_met = registry.async_get_entity_id("number", DOMAIN, f"{self._entry.entry_id}_metabolism")
+
+        # Listen to the MRT sensor (which updates when T_air, V_air, etc change)
+        # We piggyback on MRT updates to trigger PMV updates
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self.mrt_sensor.entity_id], self._handle_update
+            )
+        )
+        # Also listen to Clo/Met changes
+        entities = []
+        if self.id_clo: entities.append(self.id_clo)
+        if self.id_met: entities.append(self.id_met)
+
+        if entities:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, entities, self._handle_update
+                )
+            )
+
+    def _get_float_state(self, entity_id, default=0.0):
+        if not entity_id: return default
+        state = self.hass.states.get(entity_id)
+        if state and state.state not in ["unknown", "unavailable"]:
+            try:
+                return float(state.state)
+            except ValueError:
+                pass
+        return default
+
+    @callback
+    def _handle_update(self, event):
+        # 1. Gather all 6 Variables
+        # We can pull T_air, V_air, MRT directly from the MRT sensor's attributes
+        # to ensure we are using the exact same synchronized physics snapshot.
+
+        mrt_state = self.hass.states.get(self.mrt_sensor.entity_id)
+        if not mrt_state or mrt_state.state in ["unknown", "unavailable"]:
+            self._attr_native_value = None
+            return
+
+        try:
+            t_mrt = float(mrt_state.state)
+            attrs = mrt_state.attributes
+
+            t_air = attrs.get("t_air")
+            v_air = attrs.get("air_speed_ms_convective", 0.1)
+
+            # Humidity (We need to find the RH sensor again or pass it)
+            # For simplicity, we can look up the RH sensor from config
+            rh_entity = self._entry.data.get(CONF_RH_SENSOR)
+            rh = 50.0  # Default
+            if rh_entity:
+                rh = self._get_float_state(rh_entity, 50.0)
+
+            # Personal Factors
+            clo = self._get_float_state(self.id_clo, 0.6)  # Default 0.6 (light sweater)
+            met = self._get_float_state(self.id_met, 1.1)  # Default 1.1 (typing)
+
+            if t_air is None: return
+
+            # 2. Calculate PMV
+            pmv = Psychrometrics.calculate_pmv(t_air, t_mrt, v_air, rh, met, clo)
+
+            # 3. Calculate PPD (% Dissatisfied)
+            # PPD = 100 - 95 * exp(-0.03353*PMV^4 - 0.2179*PMV^2)
+            ppd = 100.0 - 95.0 * math.exp(-0.03353 * pow(pmv, 4) - 0.2179 * pow(pmv, 2))
+
+            self._attr_native_value = round(pmv, 2)
+            self._attributes["ppd_percent"] = round(ppd, 1)
+            self._attributes["clothing_clo"] = clo
+            self._attributes["metabolic_met"] = met
+
+            # Interpreted State (Text)
+            if abs(pmv) < 0.5:
+                self._attributes["comfort_category"] = "Neutral (Comfortable)"
+            elif 0.5 <= pmv < 1.5:
+                self._attributes["comfort_category"] = "Slightly Warm"
+            elif pmv >= 1.5:
+                self._attributes["comfort_category"] = "Hot"
+            elif -1.5 < pmv <= -0.5:
+                self._attributes["comfort_category"] = "Slightly Cool"
+            elif pmv <= -1.5:
+                self._attributes["comfort_category"] = "Cold"
+
+            self.async_write_ha_state()
+
+        except ValueError:
+            self._attr_native_value = None

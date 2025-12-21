@@ -1,5 +1,10 @@
 # 0.2.1
-- Added psychrometric data via an optional relative humidity input sensor
+- For the ultimate building science nerd: add ISO 7730 / ASHRAE 55 PMV (*Predicted Mean Vote*) and PPD (*Predicted Percentage of Dissatisfied*) thermal comfort indices
+  - requires optional room relative humidity sensor input
+  - PPD is exposed as an attr of the PMV entity
+  - exposes 2 new number input entities to set clothing insulation (Clo) and metabolic rate (Met) for more accurate results
+    - use these in automations to adjust based on activity (e.g. higher Met when exercising, lower Clo when wearing lighter clothing)
+- 
 - Add "Wall Heat Flux" sensor output
   - shows estimated heat flux through the monitored wall in W/m²
   - positive values indicate heat loss from the room, negative values indicate heat gain into the room

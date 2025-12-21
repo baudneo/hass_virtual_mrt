@@ -93,10 +93,69 @@ async def async_setup_entry(
             0.0,
             85.0,
         ),
+        VirtualNumber(
+            hass, entry,
+            "clothing", "clothin", "mdi:hanger",
+            0.6, 0.0, 3.0, 0.1, "clo"
+        ),
+        VirtualNumber(
+            hass, entry,
+            "metabolism", "metabolism", "mdi:run",
+            1.1, 0.8, 4.0, 0.1, "met"
+        )
     ]
 
     async_add_entities(entities)
 
+
+class VirtualNumber(RestoreNumber):
+    """Generic number entity for Virtual MRT parameters."""
+
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        device_info,
+        key: str,
+        translation_key: str,
+        icon: str,
+        default_val: float,
+        min_val: float,
+        max_val: float,
+        step: float,
+        unit: str | None = None,
+    ):
+        self._key = key
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
+        self.translation_key = translation_key
+        self._attr_device_info = device_info
+        self._icon = icon
+
+        self._default_val = default_val
+        self._attr_native_min_value = min_val
+        self._attr_native_max_value = max_val
+        self._attr_native_step = step
+        self._attr_native_unit_of_measurement = unit
+        self._attr_native_value = default_val
+
+    @property
+    def icon(self) -> str | None:
+        return self._icon
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+        last_data = await self.async_get_last_number_data()
+        if last_data is not None:
+            self._attr_native_value = last_data.native_value
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Update the value."""
+        self._attr_native_value = value
+        self.async_write_ha_state()
 
 class VirtualFactorNumber(RestoreNumber):
     """A number entity that restores its value on restart."""

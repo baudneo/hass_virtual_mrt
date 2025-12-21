@@ -129,7 +129,8 @@
       "perception": { "name": "Thermal Perception" },
       "mold_risk": { "name": "Mold Risk (Critical Surface)" },
       "calibration_k": { "name": "Estimated Insulation Factor" },
-      "heat_flux": { "name": "Wall Heat Loss Flux" }
+      "heat_flux": { "name": "Wall Heat Loss Flux" },
+      "pmv": { "name": "Thermal Comfort (PMV)" }
     },
     "number": {
       "exterior_envelope_ratio": {
@@ -156,6 +157,12 @@
       },
       "manual_air_speed": {
         "name": "Manual Air Speed"
+      },
+      "clothing": {
+        "name": "Clothing Level (clo)"
+      },
+      "metabolism": {
+        "name": "Metabolic Rate (met)"
       }
     },
     "select": {

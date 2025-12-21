@@ -2,11 +2,6 @@
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=baudneo&repository=hass_virtual_mrt&category=integration)
 
-## 🖼️ Example Config Flow
-View an example config flow with screenshots in the [docs/setup.md](./docs/setup.md) file.
-
----
-
 ## 🙏 Thanks
 I ported this logic from a blueprint that [@Ecronika](https://github.com/Ecronika) [shared in the Home Assistant Community Forums](https://community.home-assistant.io/t/blueprint-virtual-mrt-v0-1-10-mean-radiant-temperature-operative-temperature/945267/3)
 
@@ -99,14 +94,14 @@ The integration uses several optional inputs to dynamically calculate the effect
 
 The final Air Speed ($v_{\text{air}}$) is used to determine the $T_{\text{op}}$ Convective Weighting Factor ($A_{\text{Radiant}}$). The logic uses a **"Max Wins"** approach—it calculates potential air speeds from all sources and uses the highest one.
 
-| Input | Speed Contribution |
-|:---|:---|
-| **Door State Sensor** | If `on`: **0.8 m/s** (Drafty). |
-| **Window State Sensor** | If `on`: **0.5 m/s** (Breezy). |
+| Input                   | Speed Contribution                                                                                                                                      |
+|:------------------------|:--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Door State Sensor**   | If `on`: **0.8 m/s** (Drafty).                                                                                                                          |
+| **Window State Sensor** | If `on`: **0.5 m/s** (Breezy).                                                                                                                          |
 | **HVAC Climate Entity** | If `hvac_action` is active (heating/cooling/fan): Uses the **HVAC Airflow Speed** setting (default 0.4 m/s). *Ignored if "Radiant Heating" is enabled.* |
-| **Fan Entity** | Uses mapped speed (`low`: 0.3, `med`: 0.5, `high`: 0.8). |
-| **Manual Air Speed** | Uses the value set by the user (if > 0.1). |
-| **Default** | **0.1 m/s** (Still Air Baseline). |
+| **Fan Entity**          | Uses mapped speed (`low`: 0.3, `med`: 0.5, `high`: 0.8).                                                                                                |
+| **Manual Air Speed**    | Uses the value set by the user (if > 0.1).                                                                                                              |
+| **Default**             | **0.1 m/s** (Still Air Baseline).                                                                                                                       |
 
 ### 2. Radiant Heating Model
 
@@ -129,16 +124,17 @@ If you have in-floor heating or radiators, the logic adapts.
 
 The MRT calculation is reactive, meaning it constantly adjusts based on real-time weather conditions. For this, it pulls data from the **Weather Entity**, **`sun.sun`** and the optional **Global Solar Radiation Sensor**.
 
-| Data Point                       | Source                                                       | Use in Calculation                                                                                                                                                             |
-|:---------------------------------|:-------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Outdoor Air Temp ($T_{out}$)** | `weather` entity attribute (`temperature`)                   | Calculates the **Heat Loss Term** (how much heat escapes through the walls).                                                                                                   |
-| **Apparent Temperature**         | `weather` entity attribute (`apparent_temperature`)          | Used to determine effective heat loss. If Apparent Temp is **lower** than $T_{out}$ (due to **wind chill**), the lower value is used for a more accurate loss calculation. 🌬️ |
-| **Wind Speed / Wind Gust**       | `weather` entity attribute (`wind_speed`, `wind_gust_speed`) | Calculates the **Wind Effect Factor** (convective loss). Higher wind speed increases the heat loss from the exterior envelope.                                                 |
-| **Cloud Coverage / UV Index**    | `weather` entity attributes or dedicated `sensor`            | Used to estimate **Global Solar Radiation** (Solar Gain).                                                                                                                      |
-| **Precipitation / Condition**    | `weather` entity state (`rainy`, `snowy`, etc.)              | Used to apply a **Rain Multiplier** (penalty) to the solar gain, simulating dark, wet conditions that reduce radiation transmission.                                           |
-| **Sun Elevation**                | Home Assistant's `sun.sun` entity                            | Determines the **Daylight Factor**, used as a multiplier for solar gain when the sun is below the horizon.                                                                     |
-| **Sun Azimuth**                  | Home Assistant's `sun.sun` entity                            | Calculates the **Solar Angle of Incidence Factor**, used to determine how the sun is hitting the window                                                                        |
-| **Global Solar Radiation**       | Optional dedicated `sensor` (e.g., `sensor.solar_radiation`) | **Preferred source** for solar gain calculation. Bypasses all weather heuristics if available (will log a warning on values > `1300 W/m²`, but will still use it).             |
+| Data Point                                 | Source                                                                                   | Use in Calculation                                                                                                                                                                                                                                                                                                     |
+|:-------------------------------------------|:-----------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Outdoor Air Temp ($T_{out}$)**           | Optional dedicated sensor / `weather` entity attribute (`temperature`)                   | Calculates the **Heat Loss Term** (how much heat escapes through the walls).                                                                                                                                                                                                                                           |
+| **Outdoor Relative Humidity ($RH_{out}$)** | Optional dedicated sensor / `weather` entity attribute (`humidity`)                      | Used to calculate Apparent Temperature (AAT). Combined with Wind Speed, it determines the Effective Outdoor Temperature that drives heat loss (Wind Chill). Also used to calculate Air Density and Enthalpy for HVAC efficiency metrics.                                                                               |
+| **Apparent Temperature**                   | `weather` entity attribute (`apparent_temperature`)                                      | Used to determine effective heat loss. If Apparent Temp is **lower** than $T_{out}$ (due to **wind chill**), the lower value is used for a more accurate loss calculation. *If dedicated outdoor temp, RH and wind spped sensors are configured, those are used to calculate* **Austrailian Apparent temperature** 🌬️ |
+| **Wind Speed / Wind Gust**                 | Optional dedicated sensor / `weather` entity attribute (`wind_speed`, `wind_gust_speed`) | Calculates the **Wind Effect Factor** (convective loss). Higher wind speed increases the heat loss from the exterior envelope.                                                                                                                                                                                         |
+| **Cloud Coverage / UV Index**              | Optional dedicated sensor (uv index) / `weather` entity attributes                       | Used to estimate **Global Solar Radiation** (Solar Gain).                                                                                                                                                                                                                                                              |
+| **Precipitation / Condition**              | Optional dedicated sensor / `weather` entity state (`rainy`, `snowy`, etc.)              | Used to apply a **Rain Multiplier** (penalty) to the solar gain, simulating dark, wet conditions that reduce radiation transmission.                                                                                                                                                                                   |
+| **Sun Elevation**                          | Home Assistant's `sun.sun` entity                                                        | Determines the **Daylight Factor**, used as a multiplier for solar gain when the sun is below the horizon.                                                                                                                                                                                                             |
+| **Sun Azimuth**                            | Home Assistant's `sun.sun` entity                                                        | Calculates the **Solar Angle of Incidence Factor**, used to determine how the sun is hitting the window                                                                                                                                                                                                                |
+| **Global Solar Radiation**                 | Optional dedicated `sensor` (e.g., `sensor.solar_radiation`)                             | **Preferred source** for solar gain calculation. Bypasses all weather heuristics if available (will log a warning on values > `1300 W/m²`, but will still use it).                                                                                                                                                     |
 
 >[!NOTE]
 > For best results, use a **physical Total Solar Radiation Sensor** (W/m²). These

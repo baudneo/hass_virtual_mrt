@@ -75,6 +75,7 @@ async def async_setup_entry(
                 VirtualHumidexSensor(hass, entry, device_info),
                 VirtualPerceptionSensor(hass, entry, device_info),
                 VirtualMoldRiskSensor(hass, entry, device_info),
+                VirtualHeatFluxSensor(hass, entry, device_info),
             ]
         )
     if config.get(CONF_WALL_SURFACE_SENSOR):
@@ -854,6 +855,35 @@ class Psychrometrics:
     """Helper for thermodynamic calculations."""
 
     @staticmethod
+    def calculate_humidity_ratio(vp_actual: float, pressure_hpa: float) -> float:
+        """
+        Calculate Mixing Ratio (W) in g_water / kg_dry_air.
+        """
+        # W = 0.622 * e / (P - e)
+        # Result is kg/kg, multiply by 1000 for g/kg
+        if (pressure_hpa - vp_actual) <= 0: return 0.0
+        w = 0.622 * vp_actual / (pressure_hpa - vp_actual)
+        return w * 1000.0
+
+    @staticmethod
+    def calculate_air_density(t_air: float, vp_actual: float, pressure_hpa: float) -> float:
+        """
+        Calculate Moist Air Density in kg/m³.
+        """
+        # Gas Constants
+        R_d = 287.058  # Dry Air J/(kg·K)
+        R_v = 461.495  # Water Vapor J/(kg·K)
+
+        t_kelvin = t_air + 273.15
+        p_total_pa = pressure_hpa * 100.0
+        e_pa = vp_actual * 100.0
+        p_dry_pa = p_total_pa - e_pa
+
+        # density = (Pd / (Rd * T)) + (Pv / (Rv * T))
+        rho = (p_dry_pa / (R_d * t_kelvin)) + (e_pa / (R_v * t_kelvin))
+        return rho
+
+    @staticmethod
     def calculate_vapor_pressure(t_air: float) -> float:
         """Calculate saturation vapor pressure (hPa) using Magnus formula."""
         return 6.112 * math.exp((17.67 * t_air) / (t_air + 243.5))
@@ -883,14 +913,6 @@ class Psychrometrics:
         # Ideally, just use T_dp for user simplicity unless strict physics required.
         # Let's use the standard T_dp + Correction for sub-zero.
         return dew_point - (0.1 * (t_air - dew_point))  # Heuristic adjustment
-
-    @staticmethod
-    def calculate_absolute_humidity(t_air: float, rh: float) -> float:
-        """Calculate Absolute Humidity (g/m³)."""
-        # Formula: (6.112 * e^((17.67 * T)/(T + 243.5)) * RH * 2.1674) / (273.15 + T)
-        vp_sat = Psychrometrics.calculate_vapor_pressure(t_air)
-        vp_actual = vp_sat * (rh / 100.0)
-        return (vp_actual * 100 * 2.1674) / (273.15 + t_air)  # VP in hPa * 100 = Pa
 
     @staticmethod
     def calculate_enthalpy(
@@ -1081,15 +1103,31 @@ class VirtualAbsoluteHumiditySensor(VirtualPsychroBase):
     translation_key = "absolute_humidity"
     _attr_unique_id_suffix = "abs_humidity"
     _attr_icon = "mdi:water"
+    _attr_device_class = SensorDeviceClass.ABSOLUTE_HUMIDITY
+    _attr_state_class = SensorStateClass.MEASUREMENT
 
     def __init__(self, hass, entry, device_info):
         super().__init__(hass, entry, device_info)
         self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
 
     def _update_value(self, t, rh, pressure):
-        self._attr_native_value = round(
-            Psychrometrics.calculate_absolute_humidity(t, rh), 2
-        )
+        # 1. Standard Volumetric Humidity (g/m³) - Pressure Independent approx
+        # abs_hum = (6.112 * e^(...) * rh * 2.1674) / (273.15 + T)
+        vp_sat = Psychrometrics.calculate_vapor_pressure(t)
+        vp_actual = vp_sat * (rh / 100.0)
+        t_kelvin = t + 273.15
+
+        # Volumetric Abs Humidity (g/m³)
+        val_volumetric = (1000.0 * vp_actual * 100.0) / (461.5 * t_kelvin)
+        self._attr_native_value = round(val_volumetric, 2)
+
+        # 2. Engineering Metrics (Pressure Dependent)
+        mixing_ratio = Psychrometrics.calculate_humidity_ratio(vp_actual, pressure)
+        air_density = Psychrometrics.calculate_air_density(t, vp_actual, pressure)
+
+        self._attributes["humidity_ratio_g_kg"] = round(mixing_ratio, 2)
+        self._attributes["air_density_kg_m3"] = round(air_density, 3)
+        self._attributes["vapor_pressure_hpa"] = round(vp_actual, 2)
 
 
 class VirtualEnthalpySensor(VirtualPsychroBase):
@@ -1422,3 +1460,108 @@ class VirtualCalibrationSensor(SensorEntity):
                 self._attributes["valid_conditions"] = True
 
         self.async_write_ha_state()
+
+
+class VirtualHeatFluxSensor(VirtualPsychroBase):
+    """
+    Calculates Heat Flux (Energy Loss) through the wall in W/m².
+    Also estimates the effective R-Value/U-Value of the assembly.
+    """
+    _attr_name = "Wall Heat Flux"
+    _attr_native_unit_of_measurement = "W/m²"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    translation_key = "heat_flux"
+    _attr_unique_id_suffix = "heat_flux"
+    _attr_icon = "mdi:transfer-down"
+
+    def __init__(self, hass, entry, device_info):
+        super().__init__(hass, entry, device_info)
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+        # Lookups for required inputs
+        self.id_k_loss = None
+        self.entity_wall_sensor = entry.data.get(CONF_WALL_SURFACE_SENSOR)
+        self.entity_outdoor_temp = entry.data.get(CONF_OUTDOOR_TEMP_SENSOR)
+
+    async def async_added_to_hass(self):
+        """Register listeners."""
+        await super().async_added_to_hass()
+        registry = er.async_get(self.hass)
+        self.id_k_loss = registry.async_get_entity_id(
+            "number", DOMAIN, f"{self._entry.entry_id}_k_loss"
+        )
+
+        entities = [self.entity_weather]
+        if self.id_k_loss: entities.append(self.id_k_loss)
+        if self.entity_wall_sensor: entities.append(self.entity_wall_sensor)
+        if self.entity_outdoor_temp: entities.append(self.entity_outdoor_temp)
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, entities, self._handle_update
+            )
+        )
+
+    def _get_float_state(self, entity_id, default=0.0):
+        if not entity_id: return default
+        state = self.hass.states.get(entity_id)
+        if state and state.state not in ["unknown", "unavailable"]:
+            try:
+                return float(state.state)
+            except ValueError:
+                pass
+        return default
+
+    def _update_value(self, t_air, rh, pressure=None):  # pressure unused here but keeps signature
+        # 1. Get Outdoor Temp
+        t_out = None
+        if self.entity_outdoor_temp:
+            t_out = self._get_float_state(self.entity_outdoor_temp, None)
+        if t_out is None:
+            w_state = self.hass.states.get(self.entity_weather)
+            if w_state: t_out = w_state.attributes.get("temperature")
+        if t_out is None: t_out = t_air - 10  # Fail safe default
+
+        # 2. Determine Wall Surface Temp
+        t_surface = None
+        if self.entity_wall_sensor:
+            val = self._get_float_state(self.entity_wall_sensor, None)
+            if val is not None: t_surface = val
+
+        if t_surface is None:
+            k_loss = self._get_float_state(self.id_k_loss, 0.14)
+            t_surface = t_air - ((t_air - t_out) * k_loss)
+
+        # 3. Calculate Flux
+        # Standard ASHRAE Film Coefficient (h_i) for vertical surfaces = 8.29 W/m²K
+        h_film = 8.29
+
+        delta_t_surface = t_air - t_surface
+
+        # Flux = h * delta_T
+        # We clamp at 0 because walls don't usually generate heat (unless radiant, but that's complex)
+        heat_flux = max(0.0, h_film * delta_t_surface)
+
+        self._attr_native_value = round(heat_flux, 1)
+
+        # 4. Estimate Insulation Quality (R-Value / U-Value)
+        # Only valid if there is a significant temp difference (>5C)
+        delta_t_total = t_air - t_out
+        if delta_t_total > 5.0 and heat_flux > 0.5:
+            # R_total = Delta_T_Total / Flux
+            r_si = delta_t_total / heat_flux
+            u_val = 1.0 / r_si
+
+            # Conversions
+            r_imperial = r_si * 5.678  # Convert RSI to R-Value (US/Can)
+
+            self._attributes["estimated_r_value_imperial"] = round(r_imperial, 1)
+            self._attributes["estimated_rsi"] = round(r_si, 2)
+            self._attributes["estimated_u_value"] = round(u_val, 3)
+        else:
+            self._attributes["estimated_r_value_imperial"] = "N/A (Delta T too low)"
+
+        self._attributes["wall_surface_temp"] = round(t_surface, 1)
+        self._attributes["outdoor_temp"] = t_out

@@ -128,7 +128,8 @@
       "humidex": { "name": "Humidex" },
       "perception": { "name": "Thermal Perception" },
       "mold_risk": { "name": "Mold Risk (Critical Surface)" },
-      "calibration_k": { "name": "Estimated Insulation Factor" }
+      "calibration_k": { "name": "Estimated Insulation Factor" },
+      "heat_flux": { "name": "Wall Heat Loss Flux" }
     },
     "number": {
       "exterior_envelope_ratio": {

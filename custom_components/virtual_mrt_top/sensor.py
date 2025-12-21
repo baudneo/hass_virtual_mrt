@@ -664,7 +664,7 @@ class VirtualMRTSensor(SensorEntity):
         surface_setpoint = self._get_float(self.id_radiant_temp, 24.0)
         type_state = self.hass.states.get(self.id_radiant_type)
         type_key = type_state.state if type_state else "high_mass"
-        system_props = RADIANT_TYPES.get(type_key, RADIANT_TYPES["high_massn"])
+        system_props = RADIANT_TYPES.get(type_key, RADIANT_TYPES["high_mass"])
         boost_alpha = system_props["alpha"]
         view_factor = system_props["view_factor"]
 

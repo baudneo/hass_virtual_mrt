@@ -19,7 +19,7 @@ from .const import (
     CONF_THERMAL_ALPHA,
     CONF_MANUAL_AIR_SPEED,
     CONF_HVAC_AIR_SPEED,
-    CONF_RADIANT_SURFACE_TEMP,
+    CONF_RADIANT_SURFACE_TEMP, CONF_METABOLISM, CONF_CLOTHING_INSULATION,
 )
 from .device_info import get_device_info
 
@@ -94,13 +94,13 @@ async def async_setup_entry(
             85.0,
         ),
         VirtualNumber(
-            hass, entry,
-            "clothing", "clothin", "mdi:hanger",
+            entry, device_info,
+            CONF_CLOTHING_INSULATION, "clothing", "mdi:hanger",
             0.6, 0.0, 3.0, 0.1, "clo"
         ),
         VirtualNumber(
-            hass, entry,
-            "metabolism", "metabolism", "mdi:run",
+            entry, device_info,
+            CONF_METABOLISM, "metabolism", "mdi:run",
             1.1, 0.8, 4.0, 0.1, "met"
         )
     ]

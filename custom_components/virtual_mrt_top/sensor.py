@@ -1692,6 +1692,7 @@ class VirtualPMVSensor(SensorEntity):
         # Lookups
         self.id_clo = None
         self.id_met = None
+        self._attributes = {}
 
     async def async_added_to_hass(self):
         """Register listeners."""

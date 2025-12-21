@@ -79,6 +79,7 @@ async def async_setup_entry(
                 VirtualMoldRiskSensor(hass, entry, device_info),
                 VirtualHeatFluxSensor(hass, entry, device_info),
                 VirtualPMVSensor(hass, entry, device_info, mrt_sensor),
+                VirtualMoistureExcessSensor(hass, entry, device_info),
             ]
         )
     if config.get(CONF_WALL_SURFACE_SENSOR):
@@ -1831,3 +1832,96 @@ class VirtualPMVSensor(SensorEntity):
 
         except ValueError:
             self._attr_native_value = None
+
+
+class VirtualMoistureExcessSensor(VirtualPsychroBase):
+    """
+    Calculates Moisture Excess (Indoor Mixing Ratio - Outdoor Mixing Ratio).
+    Positive values indicate internal moisture generation (cooking, showers, breathing).
+    Used to control HRV Boost independently of Temperature.
+    """
+    _attr_name = "Moisture Excess"
+    _attr_native_unit_of_measurement = "g/kg"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 2
+    translation_key = "moisture_excess"
+    _attr_unique_id_suffix = "moisture_excess"
+    _attr_icon = "mdi:water-plus"
+
+    def __init__(self, hass, entry, device_info):
+        super().__init__(hass, entry, device_info)
+        self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+
+        # Lookups for Outdoor data
+        self.entity_outdoor_temp = entry.data.get(CONF_OUTDOOR_TEMP_SENSOR)
+        self.entity_outdoor_hum = entry.data.get(CONF_OUTDOOR_HUMIDITY_SENSOR)
+
+    async def async_added_to_hass(self):
+        """Register listeners (extending base)."""
+        # Base tracks Indoor T, Indoor RH, Pressure, Weather
+        await super().async_added_to_hass()
+
+        # We also need to track dedicated outdoor sensors if they exist
+        entities = []
+        if self.entity_outdoor_temp: entities.append(self.entity_outdoor_temp)
+        if self.entity_outdoor_hum: entities.append(self.entity_outdoor_hum)
+
+        if entities:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, entities, self._handle_update
+                )
+            )
+
+    def _get_float_state(self, entity_id, default=None):
+        if not entity_id: return default
+        state = self.hass.states.get(entity_id)
+        if state and state.state not in ["unknown", "unavailable"]:
+            try:
+                return float(state.state)
+            except ValueError:
+                pass
+        return default
+
+    def _update_value(self, t_in, rh_in, pressure):
+        # 1. Calculate Indoor Mixing Ratio (W_in)
+        vp_in = Psychrometrics.calculate_vapor_pressure(t_in) * (rh_in / 100.0)
+        w_in = Psychrometrics.calculate_humidity_ratio(vp_in, pressure)
+
+        # 2. Get Outdoor Conditions
+        t_out = self._get_float_state(self.entity_outdoor_temp)
+        rh_out = self._get_float_state(self.entity_outdoor_hum)
+
+        # Fallback to Weather Entity
+        if t_out is None or rh_out is None:
+            w_state = self.hass.states.get(self.entity_weather)
+            if w_state:
+                if t_out is None: t_out = w_state.attributes.get("temperature")
+                if rh_out is None: rh_out = w_state.attributes.get("humidity")
+
+        # If still missing data, we can't calculate excess
+        if t_out is None or rh_out is None:
+            self._attr_native_value = None
+            return
+
+        # 3. Calculate Outdoor Mixing Ratio (W_out)
+        vp_sat_out = Psychrometrics.calculate_vapor_pressure(t_out)
+        vp_out = vp_sat_out * (rh_out / 100.0)
+        w_out = Psychrometrics.calculate_humidity_ratio(vp_out, pressure)
+
+        # 4. Calculate Excess
+        excess = w_in - w_out
+
+        self._attr_native_value = round(excess, 2)
+
+        # Attributes for debugging
+        self._attributes["indoor_mixing_ratio"] = round(w_in, 2)
+        self._attributes["outdoor_mixing_ratio"] = round(w_out, 2)
+
+        # Classification
+        if excess < 0.5:
+            self._attributes["status"] = "Neutral (Balanced)"
+        elif excess < 1.5:
+            self._attributes["status"] = "Moderate Load (Occupied)"
+        else:
+            self._attributes["status"] = "High Load (Cooking/Shower)"

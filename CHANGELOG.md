@@ -1,6 +1,9 @@
 # 0.2.2
-- Add update throttling by exposing a 'minimum update interval' config/options entry
-  - Saves DB spam but is still responsive 
+- Add update throttling by exposing a 'minimum update interval' config/options entry (default: 30s)
+  - Saves DB spam but is still responsive
+- Add a 'moisture excess' sensor to help with HRV/ERV boosts
+  - shows how much moisture (in g/kg) is above the ideal comfort level for the current temperature
+  - helps to decide when to run an HRV/ERV to remove excess humidity from the room
 # 0.2.1
 - For the ultimate building science nerd: add ISO 7730 / ASHRAE 55 PMV (*Predicted Mean Vote*) and PPD (*Predicted Percentage of Dissatisfied*) thermal comfort indices
   - requires optional room relative humidity sensor input

@@ -1719,6 +1719,11 @@ class VirtualPMVSensor(SensorEntity):
                 )
             )
 
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        return self._attributes
+
     def _get_float_state(self, entity_id, default=0.0):
         if not entity_id: return default
         state = self.hass.states.get(entity_id)

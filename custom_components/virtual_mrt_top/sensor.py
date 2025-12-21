@@ -1569,7 +1569,7 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
     """
     _attr_name = "Wall Heat Flux"
     _attr_native_unit_of_measurement = "W/m²"
-    _attr_device_class = SensorDeviceClass.POWER
+    _attr_device_class = SensorDeviceClass.IRRADIANCE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 1
     translation_key = "heat_flux"

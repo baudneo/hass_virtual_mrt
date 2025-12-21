@@ -2,6 +2,21 @@
   "config": {
     "step": {
       "user": {
+        "title": "Select Configuration Type",
+        "menu_options": {
+          "room_setup": "Add a Virtual Room (MRT/T_op)",
+          "aggregator_setup": "Add a Zone Aggregator (Average)"
+        }
+      },
+      "aggregator_setup": {
+        "title": "Configure Zone Aggregator",
+        "description": "Set up a zone aggregator to compute average MRT and T_op across multiple rooms.",
+        "data": {
+          "name": "Aggregator Name (Floor / Whole House, Zone)",
+          "source_entities": "Source Room MRT/T_op Sensors"
+        }
+      },
+      "room_setup": {
         "title": "Set up Virtual MRT/T_op Room",
         "description": "Enter the details of the room to calculate Mean Radiant Temperature and Operative Temperature.",
         "data": {
@@ -94,7 +109,7 @@
           }
         }
       }
-    },
+  },
   "selector": {
     "room_profile": {
       "options": {

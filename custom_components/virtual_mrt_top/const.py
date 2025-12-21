@@ -37,6 +37,10 @@ CONF_METABOLISM = "metabolism"
 CUSTOM_PROFILE_KEY = "custom"
 CONF_MIN_UPDATE_INTERVAL = "min_update_interval"
 DEFAULT_MIN_UPDATE_INTERVAL = 30 # Seconds
+CONF_DEVICE_TYPE = "device_type"
+TYPE_ROOM = "room"
+TYPE_AGGREGATOR = "aggregator"
+CONF_SOURCE_ENTITIES = "source_entities"
 
 ORIENTATION_OPTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 

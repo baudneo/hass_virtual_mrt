@@ -35,7 +35,7 @@ from .const import (
     DEFAULT_AIR_SPEED_STILL,
     CONF_PRESSURE_SENSOR,
     CONF_MIN_UPDATE_INTERVAL,
-    DEFAULT_MIN_UPDATE_INTERVAL,
+    DEFAULT_MIN_UPDATE_INTERVAL, CONF_DEVICE_TYPE, TYPE_AGGREGATOR, CONF_SOURCE_ENTITIES, TYPE_ROOM,
 )
 
 
@@ -46,14 +46,56 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     MINOR_VERSION = 0
 
     async def async_step_user(self, user_input=None):
-        """Handle the initial step."""
+        """Handle the initial step (Menu)."""
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["room_setup", "aggregator_setup"]
+        )
+
+    async def async_step_aggregator_setup(self, user_input=None):
+        """Handle the setup for a Zone Aggregator."""
+        errors = {}
         if user_input is not None:
+            # Save as an Aggregator type
+            data = {
+                CONF_NAME: user_input[CONF_NAME],
+                CONF_DEVICE_TYPE: TYPE_AGGREGATOR,
+                CONF_SOURCE_ENTITIES: user_input[CONF_SOURCE_ENTITIES]
+            }
+            return self.async_create_entry(title=user_input[CONF_NAME], data=data)
+
+        return self.async_show_form(
+            step_id="aggregator_setup",
+            data_schema=vol.Schema({
+                vol.Required(CONF_NAME): str,
+                vol.Required(CONF_SOURCE_ENTITIES): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="sensor",
+                        multiple=True,
+                        # We ideally want to filter only Virtual MRT sensors,
+                        # but filtering by integration in selector is tricky.
+                        # We'll rely on the user picking the right T_op or MRT sensors.
+                    )
+                ),
+            }),
+            errors=errors
+        )
+
+    async def async_step_room_setup(self, user_input=None):
+        """Handle the standard Room setup (Moved from async_step_user)."""
+        if user_input is not None:
+            # Mark this as a Room type
+            user_input[CONF_DEVICE_TYPE] = TYPE_ROOM
             return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
 
         profile_keys = list(ROOM_PROFILES.keys())
 
+        # ... [PASTE YOUR EXISTING SCHEMA HERE from the previous async_step_user] ...
+        # Ensure the schema structure is identical to what you had before.
+        # Just remember to wrap it in self.async_show_form(step_id="room_setup", ...)
+
         return self.async_show_form(
-            step_id="user",
+            step_id="room_setup",
             data_schema=vol.Schema(
                 {
                     # --- SECTION 1: CORE (Always Visible) ---
@@ -213,14 +255,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 }
             ),
         )
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> OptionsFlowHandler:
-        """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):

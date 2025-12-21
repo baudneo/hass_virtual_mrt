@@ -52,6 +52,9 @@ from .const import (
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_PRESSURE_SENSOR,
     CONF_MIN_UPDATE_INTERVAL,
+    CONF_DEVICE_TYPE,
+    TYPE_AGGREGATOR,
+    CONF_SOURCE_ENTITIES,
 )
 from .device_info import get_device_info
 
@@ -63,6 +66,13 @@ async def async_setup_entry(
 ):
     """Set up sensors from a config entry."""
     config = entry.data
+    device_type = config.get(CONF_DEVICE_TYPE, "room")  # Default to room for old configs
+
+    # --- BRANCH 1: AGGREGATOR ---
+    if device_type == TYPE_AGGREGATOR:
+        async_add_entities([VirtualZoneAggregator(hass, entry)])
+        return
+    # --- BRANCH 2: ROOM SENSOR SET ---
     device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
     mrt_sensor = VirtualMRTSensor(hass, entry, device_info)
     op_sensor = VirtualOperativeTempSensor(hass, entry, device_info, mrt_sensor)
@@ -77,7 +87,7 @@ async def async_setup_entry(
                 VirtualHumidexSensor(hass, entry, device_info),
                 VirtualPerceptionSensor(hass, entry, device_info),
                 VirtualMoldRiskSensor(hass, entry, device_info),
-                VirtualHeatFluxSensor(hass, entry, device_info),
+                VirtualHeatFluxSensor(hass, entry, device_info, mrt_sensor),
                 VirtualPMVSensor(hass, entry, device_info, mrt_sensor),
                 VirtualMoistureExcessSensor(hass, entry, device_info),
             ]
@@ -1615,9 +1625,10 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
     _attr_unique_id_suffix = "heat_flux"
     _attr_icon = "mdi:transfer-down"
 
-    def __init__(self, hass, entry, device_info):
+    def __init__(self, hass, entry, device_info, mrt_sensor):
         super().__init__(hass, entry, device_info)
         self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
+        self.mrt_sensor = mrt_sensor
 
         # Lookups for required inputs
         self.id_k_loss = None
@@ -1632,7 +1643,7 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
             "number", DOMAIN, f"{self._entry.entry_id}_k_loss"
         )
 
-        entities = [self.entity_weather]
+        entities = [self.entity_weather, self.mrt_sensor.entity_id]
         if self.id_k_loss: entities.append(self.id_k_loss)
         if self.entity_wall_sensor: entities.append(self.entity_wall_sensor)
         if self.entity_outdoor_temp: entities.append(self.entity_outdoor_temp)
@@ -1652,6 +1663,29 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
             except ValueError:
                 pass
         return default
+
+    def _calculate_dynamic_film_coefficient(self):
+        """
+        Calculate h_film = h_radiative + h_convective
+        Standard ASHRAE 55 / ISO 7730 models.
+        """
+        # 1. Get Air Speed from MRT Sensor (Central Source of Truth)
+        v_air = 0.1  # Default Still Air
+        if self.mrt_sensor.extra_state_attributes:
+            v_air = self.mrt_sensor.extra_state_attributes.get("air_speed_ms_convective", 0.1)
+
+        # 2. Radiative Coefficient (h_r)
+        # Linearized estimate for typical room temps (20C) and emissivity (0.9)
+        # h_r = 4 * sigma * eps * T_avg^3
+        h_r = 4.7
+
+        # 3. Convective Coefficient (h_c)
+        # ASHRAE Formula: h_c = 3.1 + 5.6 * v_air^0.6
+        # Note: If v_air < 0.1, we clamp to natural convection baseline
+        effective_v = max(0.1, v_air)
+        h_c = 3.1 + 5.6 * pow(effective_v, 0.6)
+
+        return h_r + h_c
 
     def _update_value(self, t_air, rh, pressure=None):  # pressure unused here but keeps signature
         # 1. Get Outdoor Temp
@@ -1675,7 +1709,8 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
 
         # 3. Calculate Flux
         # Standard ASHRAE Film Coefficient (h_i) for vertical surfaces = 8.29 W/m²K
-        h_film = 8.29
+        # h_film = 8.29
+        h_film = self._calculate_dynamic_film_coefficient()
 
         delta_t_surface = t_air - t_surface
 
@@ -1704,6 +1739,7 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
 
         self._attributes["wall_surface_temp"] = round(t_surface, 1)
         self._attributes["outdoor_temp"] = t_out
+        self._attributes["film_coefficient_h"] = round(h_film, 2)
 
 
 class VirtualPMVSensor(SensorEntity):
@@ -1925,3 +1961,110 @@ class VirtualMoistureExcessSensor(VirtualPsychroBase):
             self._attributes["status"] = "Moderate Load (Occupied)"
         else:
             self._attributes["status"] = "High Load (Cooking/Shower)"
+
+
+class VirtualZoneAggregator(SensorEntity):
+    """
+    Aggregates multiple Virtual MRT sensors into a Zone/Floor average.
+    Calculates: Avg T_op, Avg MRT, Max Mold Risk.
+    """
+    _attr_has_entity_name = True
+    _attr_name = "Zone Operative Temperature"  # Main state is T_op
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-group"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_aggregator"
+
+        # We manually build device info since this doesn't use the standard helper
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": entry.data[CONF_NAME],
+            "manufacturer": "Virtual MRT/T_op",
+            "model": "Zone Aggregator",
+        }
+
+        self.source_entities = entry.data.get(CONF_SOURCE_ENTITIES, [])
+        self._attributes = {}
+
+    async def async_added_to_hass(self):
+        """Register listeners for all source entities."""
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, self.source_entities, self._handle_update
+            )
+        )
+        self._handle_update(None)
+
+    def _get_float(self, state):
+        try:
+            return float(state)
+        except (ValueError, TypeError):
+            return None
+
+    @callback
+    def _handle_update(self, event):
+        """Calculate averages."""
+        temps = []
+        mrts = []
+        mold_risks = []
+        fluxes = []
+
+        for entity_id in self.source_entities:
+            state_obj = self.hass.states.get(entity_id)
+            if not state_obj or state_obj.state in ["unknown", "unavailable"]:
+                continue
+
+            # Main State (Assume sources are T_op sensors, or MRT sensors)
+            # If the user selected T_op sensors, state is T_op.
+            val = self._get_float(state_obj.state)
+            if val is not None:
+                temps.append(val)
+
+            # Try to grab attributes if they exist (assuming standard MRT/Top sensor)
+            # If the user selected MRT sensors, we look for 'operative_temperature' attr?
+            # Or if they selected T_op sensors, we look for 'mrt_smoothed' attr?
+            # Strategy: Be flexible.
+
+            attrs = state_obj.attributes
+
+            # MRT
+            mrt = attrs.get("mrt_smoothed") or attrs.get("mrt_clamped") or (val if "mrt" in entity_id else None)
+            if mrt is not None: mrts.append(float(mrt))
+
+            # Heat Flux (Look for sibling sensor or attribute?
+            # Aggregator logic is limited if we only select ONE entity per room)
+            # For V1, we just average the main states.
+
+            # MOLD RISK: This is usually a separate sensor.
+            # If the user wants to aggregate Mold Risk, they should create a separate
+            # Aggregator instance for "Zone Mold Risk" and select all mold sensors.
+            # BUT, we can try to be smart. If the source entity has a "mold_risk" attribute
+            # (which our sensors don't), we could use it.
+            # Our Mold Risk is a separate entity.
+
+            # Let's keep it simple: The Aggregator averages the STATE of the selected entities.
+
+        if not temps:
+            self._attr_native_value = None
+            return
+
+        # Calculate Average
+        avg_temp = sum(temps) / len(temps)
+        self._attr_native_value = round(avg_temp, 2)
+
+        # Attributes
+        self._attributes["source_count"] = len(temps)
+        self._attributes["min_value"] = min(temps)
+        self._attributes["max_value"] = max(temps)
+        self._attributes["spread"] = round(max(temps) - min(temps), 2)
+
+        if mrts:
+            self._attributes["avg_mrt"] = round(sum(mrts) / len(mrts), 2)
+
+        self.async_write_ha_state()

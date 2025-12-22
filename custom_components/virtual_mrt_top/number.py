@@ -23,6 +23,8 @@ from .const import (
     CONF_MANUAL_AIR_SPEED,
     CONF_HVAC_AIR_SPEED,
     CONF_RADIANT_SURFACE_TEMP, CONF_METABOLISM, CONF_CLOTHING_INSULATION,
+    CONF_DEVICE_TYPE,
+    TYPE_AGGREGATOR,
 )
 from .device_info import get_device_info
 
@@ -32,7 +34,8 @@ async def async_setup_entry(
 ):
     """Set up number entities."""
     config = entry.data
-
+    if config.get(CONF_DEVICE_TYPE) == TYPE_AGGREGATOR:
+        return
     # Get the default values from the selected profile
     profile_key = config[CONF_ROOM_PROFILE]
     defaults = ROOM_PROFILES[profile_key]["data"]  # [f_out, f_win, k_loss, k_solar]

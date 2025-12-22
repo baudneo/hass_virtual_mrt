@@ -35,8 +35,30 @@ from .const import (
     DEFAULT_AIR_SPEED_STILL,
     CONF_PRESSURE_SENSOR,
     CONF_MIN_UPDATE_INTERVAL,
-    DEFAULT_MIN_UPDATE_INTERVAL, CONF_DEVICE_TYPE, TYPE_AGGREGATOR, CONF_SOURCE_ENTITIES, TYPE_ROOM,
+    DEFAULT_MIN_UPDATE_INTERVAL,
+    CONF_DEVICE_TYPE,
+    TYPE_AGGREGATOR,
+    CONF_SOURCE_ENTITIES,
+    TYPE_ROOM,
+    CONF_ROOM_AREA,
 )
+
+
+def _flatten_input(user_input: dict) -> dict:
+    """
+    Helper: Flatten nested section dictionaries into the top level.
+    e.g. {'sensors_section': {'rh_sensor': 'x'}} -> {'rh_sensor': 'x'}
+    """
+    if not user_input:
+        return {}
+
+    flat = {}
+    for key, value in user_input.items():
+        if isinstance(value, dict) and key.endswith("_section"):
+            flat.update(value)
+        else:
+            flat[key] = value
+    return flat
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -44,6 +66,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 3
     MINOR_VERSION = 0
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        """Get the options flow for this handler."""
+        return OptionsFlowHandler(config_entry)
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step (Menu)."""
@@ -54,13 +82,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_aggregator_setup(self, user_input=None):
         """Handle the setup for a Zone Aggregator."""
-        errors = {}
         if user_input is not None:
-            # Save as an Aggregator type
+            # Aggregator doesn't use sections, so no flattening needed yet
             data = {
                 CONF_NAME: user_input[CONF_NAME],
                 CONF_DEVICE_TYPE: TYPE_AGGREGATOR,
-                CONF_SOURCE_ENTITIES: user_input[CONF_SOURCE_ENTITIES]
+                "source_devices": user_input["source_devices"]
             }
             return self.async_create_entry(title=user_input[CONF_NAME], data=data)
 
@@ -68,31 +95,25 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="aggregator_setup",
             data_schema=vol.Schema({
                 vol.Required(CONF_NAME): str,
-                vol.Required(CONF_SOURCE_ENTITIES): selector.EntitySelector(
-                    selector.EntitySelectorConfig(
-                        domain="sensor",
+                vol.Required("source_devices"): selector.DeviceSelector(
+                    selector.DeviceSelectorConfig(
                         multiple=True,
-                        # We ideally want to filter only Virtual MRT sensors,
-                        # but filtering by integration in selector is tricky.
-                        # We'll rely on the user picking the right T_op or MRT sensors.
+                        integration=DOMAIN
                     )
                 ),
-            }),
-            errors=errors
+            })
         )
 
     async def async_step_room_setup(self, user_input=None):
-        """Handle the standard Room setup (Moved from async_step_user)."""
+        """Handle the standard Room setup."""
         if user_input is not None:
-            # Mark this as a Room type
-            user_input[CONF_DEVICE_TYPE] = TYPE_ROOM
-            return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
+            # --- FIX: FLATTEN INPUT BEFORE SAVING ---
+            flat_input = _flatten_input(user_input)
+
+            flat_input[CONF_DEVICE_TYPE] = TYPE_ROOM
+            return self.async_create_entry(title=flat_input[CONF_NAME], data=flat_input)
 
         profile_keys = list(ROOM_PROFILES.keys())
-
-        # ... [PASTE YOUR EXISTING SCHEMA HERE from the previous async_step_user] ...
-        # Ensure the schema structure is identical to what you had before.
-        # Just remember to wrap it in self.async_show_form(step_id="room_setup", ...)
 
         return self.async_show_form(
             step_id="room_setup",
@@ -123,6 +144,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         selector.SelectSelectorConfig(
                             options=ORIENTATION_OPTIONS,
                             mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                    vol.Required(CONF_ROOM_AREA, default=15.0): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1.0, max=500.0, step=0.1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m²"
                         )
                     ),
                     vol.Required(CONF_MIN_UPDATE_INTERVAL, default=DEFAULT_MIN_UPDATE_INTERVAL): selector.NumberSelector(
@@ -266,10 +292,41 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
+        # -----------------------------------------------------------
+        # BRANCH 1: AGGREGATOR OPTIONS
+        # -----------------------------------------------------------
+        if self.config_entry.data.get(CONF_DEVICE_TYPE) == TYPE_AGGREGATOR:
+            if user_input is not None:
+                # Update aggregator configuration
+                new_data = self.config_entry.data.copy()
+                new_data.update(user_input)
+                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+                return self.async_create_entry(title="", data=None)
+
+            # Show Aggregator Form (Edit included devices)
+            current_devices = self.config_entry.data.get("source_devices", [])
+            return self.async_show_form(
+                step_id="init",
+                data_schema=vol.Schema({
+                    vol.Required("source_devices", default=current_devices): selector.DeviceSelector(
+                        selector.DeviceSelectorConfig(
+                            multiple=True,
+                            integration=DOMAIN
+                        )
+                    ),
+                })
+            )
+
+        # -----------------------------------------------------------
+        # BRANCH 2: ROOM OPTIONS (Existing Logic)
+        # -----------------------------------------------------------
         if user_input is not None:
-            # We must merge new options with old data
+            # Flatten inputs from sections
+            flat_input = _flatten_input(user_input)
+
+            # Merge new options with old data
             new_data = self.config_entry.data.copy()
-            new_data.update(user_input)
+            new_data.update(flat_input)
 
             self.hass.config_entries.async_update_entry(
                 self.config_entry, data=new_data
@@ -309,6 +366,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         pressure = _get_data("pressure_sensor", CONF_PRESSURE_SENSOR)
 
         min_interval = _get_data("min_update_interval", CONF_MIN_UPDATE_INTERVAL, DEFAULT_MIN_UPDATE_INTERVAL)
+        room_area = _get_data("room_area", CONF_ROOM_AREA, 15.0)
 
         schema = {
             # --- CORE ---
@@ -323,6 +381,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Required("orientation", default=orientation): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=ORIENTATION_OPTIONS, mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Required(CONF_ROOM_AREA, default=room_area): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1.0, max=500.0, step=0.1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m²"
                 )
             ),
             vol.Optional(CONF_MIN_UPDATE_INTERVAL, default=min_interval): selector.NumberSelector(

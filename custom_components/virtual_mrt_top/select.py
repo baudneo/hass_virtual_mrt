@@ -32,6 +32,8 @@ from .const import (
     CONF_RADIANT_TYPE,
     RADIANT_TYPES,
     CONF_IS_RADIANT,
+CONF_DEVICE_TYPE,
+    TYPE_AGGREGATOR,
 )
 from .device_info import get_device_info
 
@@ -44,6 +46,8 @@ async def async_setup_entry(
 ):
     """Set up the select entity."""
     config = entry.data
+    if config.get(CONF_DEVICE_TYPE) == TYPE_AGGREGATOR:
+        return
     device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
     store_key = f"{STORAGE_KEY}_{entry.entry_id}"
     store = Store(hass, STORAGE_VERSION, store_key)

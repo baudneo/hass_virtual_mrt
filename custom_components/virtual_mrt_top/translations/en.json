@@ -5,15 +5,15 @@
         "title": "Select Configuration Type",
         "menu_options": {
           "room_setup": "Add a Virtual Room (MRT/T_op)",
-          "aggregator_setup": "Add a Zone Aggregator (Average)"
+          "aggregator_setup": "Add an Aggregator (Virtual Floor/Whole House/HVAC Zone)"
         }
       },
       "aggregator_setup": {
-        "title": "Configure Zone Aggregator",
-        "description": "Set up a zone aggregator to compute average MRT and T_op across multiple rooms.",
+        "title": "Configure Aggregator",
+        "description": "Set up a device aggregator to create a new virtual floor, whole house or hvac zone device based on existing Virtual MRT/T_op rooms.",
         "data": {
           "name": "Aggregator Name (Floor / Whole House, Zone)",
-          "source_entities": "Source Room MRT/T_op Sensors"
+          "source_devices": "Which virtual rooms to include in this aggregator?"
         }
       },
       "room_setup": {
@@ -25,6 +25,7 @@
           "weather_entity": "Weather Entity",
           "room_profile": "Room Profile",
           "orientation": "Main Window Orientation",
+          "room_area": "Room Floor Area (m²)",
           "min_update_interval": "Minimum Update Interval (Throttle)",
           "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)"
         },
@@ -34,7 +35,7 @@
             "description": "Connect external sensors for higher accuracy.",
             "data": {
               "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor",
-              "rh_sensor": "Relative Humidity Sensor",
+              "rh_sensor": "Room Relative Humidity Sensor",
               "wall_surface_sensor": "Calibration Sensor: Interior Wall Surface Temp",
               "outdoor_temp_sensor": "Dedicated Outdoor Temp Sensor",
               "outdoor_humidity_sensor": "Dedicated Outdoor Humidity Sensor",
@@ -72,8 +73,10 @@
             "air_temp_source": "Room Air Temperature Sensor",
             "weather_entity": "Weather Entity",
             "orientation": "Main Window Orientation",
+            "room_area": "Room Floor Area (m²)",
             "min_update_interval": "Minimum Update Interval (Throttle)",
-            "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)"
+            "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)",
+            "source_devices": "Which virtual rooms to include in this aggregator?"
           },
           "sections": {
             "sensors_section": {
@@ -81,7 +84,7 @@
               "description": "Connect external sensors for higher accuracy.",
               "data": {
                 "solar_sensor": "Global Horizontal [Solar] Irradiation (GHI) Sensor",
-                "rh_sensor": "Relative Humidity Sensor",
+                "rh_sensor": "Room Relative Humidity Sensor",
                 "wall_surface_sensor": "Calibration Sensor: Interior Wall Surface Temp",
                 "outdoor_temp_sensor": "Dedicated Outdoor Temp Sensor",
                 "outdoor_humidity_sensor": "Dedicated Outdoor Humidity Sensor",

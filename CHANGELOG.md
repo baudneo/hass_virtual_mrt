@@ -1,7 +1,8 @@
 # 0.2.2
 - Add an 'Aggregator' class to create floors, whole home, HVAC zones, etc. by combining multiple virtual room devices
-  - Each room can be weighted individually to account for room size/importance
-  - Aggregator outputs a new virtual device with weighted average MRT, T_op, comfort indices, etc.
+  - Each room can be weighted individually to account for room size via its total area config/option entry
+  - Aggregator outputs a new virtual device with weighted average temperature 
+  - attributes for heat loss in watts based on total area of all combined rooms and their data
   - Can be used to create whole-home comfort monitoring or zone-based HVAC control
 - Add update throttling by exposing a 'minimum update interval' config/options entry (default: 30s)
   - Saves DB spam but is still responsive

@@ -24,6 +24,8 @@ from .const import (
     STORAGE_VERSION,
     STORE_KEY_SAVED,
     MAX_SAVED_PROFILES,
+    CONF_DEVICE_TYPE,
+    TYPE_AGGREGATOR,
 )
 from .device_info import get_device_info
 
@@ -35,6 +37,8 @@ async def async_setup_entry(
 ):
     """Set up the button entities."""
     config = entry.data
+    if config.get(CONF_DEVICE_TYPE) == TYPE_AGGREGATOR:
+        return
     device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
 
     # Each button gets access to the same storage file

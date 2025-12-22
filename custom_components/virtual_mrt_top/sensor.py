@@ -55,6 +55,7 @@ from .const import (
     CONF_DEVICE_TYPE,
     TYPE_AGGREGATOR,
     CONF_SOURCE_ENTITIES,
+    CONF_ROOM_AREA,
 )
 from .device_info import get_device_info
 
@@ -67,13 +68,14 @@ async def async_setup_entry(
     """Set up sensors from a config entry."""
     config = entry.data
     device_type = config.get(CONF_DEVICE_TYPE, "room")  # Default to room for old configs
+    device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
+
 
     # --- BRANCH 1: AGGREGATOR ---
     if device_type == TYPE_AGGREGATOR:
-        async_add_entities([VirtualZoneAggregator(hass, entry)])
+        async_add_entities([VirtualZoneAggregator(hass, entry, device_info)])
         return
     # --- BRANCH 2: ROOM SENSOR SET ---
-    device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
     mrt_sensor = VirtualMRTSensor(hass, entry, device_info)
     op_sensor = VirtualOperativeTempSensor(hass, entry, device_info, mrt_sensor)
     entities = [mrt_sensor, op_sensor]
@@ -796,6 +798,7 @@ class VirtualOperativeTempSensor(SensorEntity):
         self._attr_device_info = device_info
         self._mrt_sensor = mrt_sensor
         self._air_entity = entry.data[CONF_AIR_TEMP_SOURCE]
+        self._room_area = entry.data.get(CONF_ROOM_AREA, 1.0)
         self._attributes = {}
 
     @property
@@ -884,6 +887,7 @@ class VirtualOperativeTempSensor(SensorEntity):
                 self._attr_native_value = round(operative_temp, 2)
 
                 # Add/overwrite specific attributes
+                self._attributes["room_area_m2"] = self._room_area
                 self._attributes["mrt_smoothed"] = mrt
                 self._attributes["t_air"] = air
                 self._attributes["operative_temperature"] = operative_temp
@@ -1960,10 +1964,138 @@ class VirtualMoistureExcessSensor(VirtualPsychroBase):
         elif excess < 1.5:
             self._attributes["status"] = "Moderate Load (Occupied)"
         else:
-            self._attributes["status"] = "High Load (Cooking/Shower)"
+            self._attributes["status"] = "High Load (Cooking/Shower/Humidifier)"
 
 
 class VirtualZoneAggregator(SensorEntity):
+    """
+    Aggregates multiple Virtual MRT devices.
+    Calculates: Area-Weighted Avg T_op, and Total Zone Heat Loss (Watts).
+    """
+    _attr_has_entity_name = True
+    _attr_name = "Zone Weighted Temperature"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:home-group"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, device_info):
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_aggregator"
+        device_info["model"] = "Virtual Room Aggregator"
+        self._attr_device_info = device_info
+
+
+        # We store Device IDs, but we need to resolve them to Entity IDs at runtime
+        self.source_device_ids = entry.data.get("source_devices", [])
+        self.monitored_entities = set()
+        self._attributes = {}
+
+    @property
+    def extra_state_attributes(self):
+        """Return the state attributes."""
+        return self._attributes
+
+    async def async_added_to_hass(self):
+        """Resolve devices to entities and start listening."""
+        registry = er.async_get(self.hass)
+
+        # Find the 'operative_temperature' sensor for each selected device
+        for device_id in self.source_device_ids:
+            entries = registry.entities.get_entries_for_device_id(device_id)
+            for entry in entries:
+                # We specifically look for the operative temp sensor
+                # Strategy: Check translation_key or unique_id suffix
+                if entry.domain == "sensor" and entry.translation_key == "operative_temperature":
+                    self.monitored_entities.add(entry.entity_id)
+                # We can also look for heat_flux sensors to calculate Total Watts
+                if entry.domain == "sensor" and entry.translation_key == "heat_flux":
+                    self.monitored_entities.add(entry.entity_id)
+
+        # Listen to these discovered entities
+        if self.monitored_entities:
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass, list(self.monitored_entities), self._handle_update
+                )
+            )
+            self._handle_update(None)
+
+    def _get_float(self, state):
+        try:
+            return float(state)
+        except (ValueError, TypeError):
+            return None
+
+    @callback
+    def _handle_update(self, event):
+        """Calculate Area-Weighted Averages."""
+        # Data structure: {device_id: {'temp': X, 'area': Y, 'flux': Z}}
+        device_data = {}
+        registry = er.async_get(self.hass)
+
+        # 1. Collect Data from all monitored entities
+        for entity_id in self.monitored_entities:
+            state_obj = self.hass.states.get(entity_id)
+            if not state_obj or state_obj.state in ["unknown", "unavailable"]:
+                continue
+
+            # Map entity back to device_id to group T_op and Flux together
+            entry = registry.async_get(entity_id)
+            if not entry: continue
+            dev_id = entry.device_id
+
+            if dev_id not in device_data:
+                device_data[dev_id] = {'area': 1.0}  # Default area weight
+
+            val = self._get_float(state_obj.state)
+
+            # Check what kind of sensor this is
+            if entry.translation_key == "operative_temperature":
+                device_data[dev_id]['temp'] = val
+                # Try to get area from attribute (Best source)
+                area = state_obj.attributes.get("room_area_m2")
+                if area: device_data[dev_id]['area'] = float(area)
+
+            elif entry.translation_key == "heat_flux":
+                device_data[dev_id]['flux'] = val
+
+        # 2. Perform Calculations
+        total_area = 0.0
+        weighted_temp_sum = 0.0
+        total_watts_loss = 0.0
+
+        valid_temp_count = 0
+
+        for dev_id, data in device_data.items():
+            area = data.get('area', 1.0)
+
+            # Weighted Temp
+            if 'temp' in data:
+                weighted_temp_sum += (data['temp'] * area)
+                total_area += area
+                valid_temp_count += 1
+
+            # Total Energy Loss (Watts) = Flux (W/m2) * Area (m2)
+            if 'flux' in data and 'area' in data:
+                total_watts_loss += (data['flux'] * area)
+
+        # 3. Output Results
+        if total_area > 0 and valid_temp_count > 0:
+            avg_temp = weighted_temp_sum / total_area
+            self._attr_native_value = round(avg_temp, 2)
+
+            self._attributes["total_zone_area_m2"] = round(total_area, 1)
+            self._attributes["total_heat_loss_watts"] = round(total_watts_loss, 0)
+            self._attributes["active_rooms"] = valid_temp_count
+        else:
+            self._attr_native_value = None
+
+        self.async_write_ha_state()
+
+
+class VirtualZoneAggregatorOLD(SensorEntity):
     """
     Aggregates multiple Virtual MRT sensors into a Zone/Floor average.
     Calculates: Avg T_op, Avg MRT, Max Mold Risk.

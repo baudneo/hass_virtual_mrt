@@ -41,6 +41,7 @@ CONF_DEVICE_TYPE = "device_type"
 TYPE_ROOM = "room"
 TYPE_AGGREGATOR = "aggregator"
 CONF_SOURCE_ENTITIES = "source_entities"
+CONF_ROOM_AREA = "room_area"
 
 ORIENTATION_OPTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 

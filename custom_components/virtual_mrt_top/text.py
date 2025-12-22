@@ -11,7 +11,8 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
-from .const import DOMAIN
+
+from .const import DOMAIN, CONF_DEVICE_TYPE, TYPE_AGGREGATOR
 from .device_info import get_device_info
 
 
@@ -20,6 +21,8 @@ async def async_setup_entry(
 ):
     """Set up the text entity."""
     config = entry.data
+    if config.get(CONF_DEVICE_TYPE) == TYPE_AGGREGATOR:
+        return
     device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
 
     async_add_entities([VirtualProfileText(hass, entry, device_info)])

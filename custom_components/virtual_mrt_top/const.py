@@ -1,5 +1,7 @@
 """Constants for the Virtual MRT integration."""
 
+from typing import Iterable
+
 DOMAIN = "virtual_mrt_top"
 
 STORAGE_KEY = f"{DOMAIN}_profiles"
@@ -15,7 +17,9 @@ CONF_AIR_TEMP_SOURCE = "air_temp_source"
 CONF_WEATHER_ENTITY = "weather_entity"
 CONF_SOLAR_SENSOR = "solar_sensor"
 CONF_SHADING_ENTITY = "shading_entity"
-
+CONF_FLOOR_LEVEL = "floor_level"
+CONF_CEILING_HEIGHT = "ceiling_height"
+DEFAULT_CEILING_HEIGHT = 2.7
 CONF_OUTDOOR_TEMP_SENSOR = "outdoor_temp_sensor"
 CONF_OUTDOOR_HUMIDITY_SENSOR = "outdoor_humidity_sensor"
 CONF_WIND_SPEED_SENSOR = "wind_speed_sensor"
@@ -36,12 +40,13 @@ CONF_CLOTHING_INSULATION = "clothing"
 CONF_METABOLISM = "metabolism"
 CUSTOM_PROFILE_KEY = "custom"
 CONF_MIN_UPDATE_INTERVAL = "min_update_interval"
-DEFAULT_MIN_UPDATE_INTERVAL = 30 # Seconds
+DEFAULT_MIN_UPDATE_INTERVAL = 30  # Seconds
 CONF_DEVICE_TYPE = "device_type"
 TYPE_ROOM = "room"
 TYPE_AGGREGATOR = "aggregator"
 CONF_SOURCE_ENTITIES = "source_entities"
 CONF_ROOM_AREA = "room_area"
+DEFAULT_ROOM_AREA = 15.0
 
 ORIENTATION_OPTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 
@@ -147,3 +152,14 @@ ROOM_PROFILES = {
         "data": [0.3, 0.00, 0.12, 0.40],
     },
 }
+
+
+async def get_device_info(identifier: Iterable, name: str):
+    device_info = {
+        "identifiers": identifier,
+        "name": name,
+        "manufacturer": "Virtual MRT/T_op",
+        "model": "Configurable Room",
+    }
+
+    return device_info

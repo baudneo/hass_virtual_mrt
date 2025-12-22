@@ -12,8 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
-from .const import DOMAIN, CONF_DEVICE_TYPE, TYPE_AGGREGATOR
-from .device_info import get_device_info
+from .const import DOMAIN, CONF_DEVICE_TYPE, TYPE_AGGREGATOR, get_device_info
 
 
 async def async_setup_entry(

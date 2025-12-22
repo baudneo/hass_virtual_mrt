@@ -11,6 +11,8 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.selector import SelectSelectorMode
 
 from .const import (
+    CONF_FLOOR_LEVEL,
+    CONF_CEILING_HEIGHT,
     DOMAIN,
     CONF_ROOM_PROFILE,
     ROOM_PROFILES,
@@ -38,9 +40,9 @@ from .const import (
     DEFAULT_MIN_UPDATE_INTERVAL,
     CONF_DEVICE_TYPE,
     TYPE_AGGREGATOR,
-    CONF_SOURCE_ENTITIES,
     TYPE_ROOM,
     CONF_ROOM_AREA,
+    DEFAULT_CEILING_HEIGHT,
 )
 
 
@@ -76,8 +78,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         """Handle the initial step (Menu)."""
         return self.async_show_menu(
-            step_id="user",
-            menu_options=["room_setup", "aggregator_setup"]
+            step_id="user", menu_options=["room_setup", "aggregator_setup"]
         )
 
     async def async_step_aggregator_setup(self, user_input=None):
@@ -87,21 +88,32 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data = {
                 CONF_NAME: user_input[CONF_NAME],
                 CONF_DEVICE_TYPE: TYPE_AGGREGATOR,
-                "source_devices": user_input["source_devices"]
+                "source_devices": user_input["source_devices"],
+                CONF_CEILING_HEIGHT: user_input[CONF_CEILING_HEIGHT],
             }
             return self.async_create_entry(title=user_input[CONF_NAME], data=data)
 
         return self.async_show_form(
             step_id="aggregator_setup",
-            data_schema=vol.Schema({
-                vol.Required(CONF_NAME): str,
-                vol.Required("source_devices"): selector.DeviceSelector(
-                    selector.DeviceSelectorConfig(
-                        multiple=True,
-                        integration=DOMAIN
-                    )
-                ),
-            })
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_NAME): str,
+                    vol.Required(
+                        CONF_CEILING_HEIGHT, default=2.7
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=2.0,
+                            max=5.0,
+                            step=0.1,
+                            unit_of_measurement="m",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Required("source_devices"): selector.DeviceSelector(
+                        selector.DeviceSelectorConfig(multiple=True, integration=DOMAIN)
+                    ),
+                }
+            ),
         )
 
     async def async_step_room_setup(self, user_input=None):
@@ -121,6 +133,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     # --- SECTION 1: CORE (Always Visible) ---
                     vol.Required(CONF_NAME): str,
+                    vol.Required(CONF_FLOOR_LEVEL, default=1): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=-2, max=10, step=1, mode=selector.NumberSelectorMode.BOX
+                        )
+                    ),
                     vol.Required(CONF_AIR_TEMP_SOURCE): selector.EntitySelector(
                         selector.EntitySelectorConfig(
                             domain="sensor", device_class="temperature"
@@ -148,13 +165,22 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                     vol.Required(CONF_ROOM_AREA, default=15.0): selector.NumberSelector(
                         selector.NumberSelectorConfig(
-                            min=1.0, max=500.0, step=0.1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m²"
+                            min=1.0,
+                            max=500.0,
+                            step=0.1,
+                            mode=selector.NumberSelectorMode.BOX,
+                            unit_of_measurement="m²",
                         )
                     ),
-                    vol.Required(CONF_MIN_UPDATE_INTERVAL, default=DEFAULT_MIN_UPDATE_INTERVAL): selector.NumberSelector(
+                    vol.Required(
+                        CONF_MIN_UPDATE_INTERVAL, default=DEFAULT_MIN_UPDATE_INTERVAL
+                    ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
-                            min=0, max=300, step=5, unit_of_measurement="seconds",
-                            mode=selector.NumberSelectorMode.BOX
+                            min=0,
+                            max=300,
+                            step=5,
+                            unit_of_measurement="seconds",
+                            mode=selector.NumberSelectorMode.BOX,
                         )
                     ),
                     vol.Required(
@@ -300,21 +326,40 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 # Update aggregator configuration
                 new_data = self.config_entry.data.copy()
                 new_data.update(user_input)
-                self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=new_data
+                )
                 return self.async_create_entry(title="", data=None)
 
             # Show Aggregator Form (Edit included devices)
             current_devices = self.config_entry.data.get("source_devices", [])
+            ceiling_height = self.config_entry.data.get(
+                CONF_CEILING_HEIGHT, DEFAULT_CEILING_HEIGHT
+            )
             return self.async_show_form(
                 step_id="init",
-                data_schema=vol.Schema({
-                    vol.Required("source_devices", default=current_devices): selector.DeviceSelector(
-                        selector.DeviceSelectorConfig(
-                            multiple=True,
-                            integration=DOMAIN
-                        )
-                    ),
-                })
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_CEILING_HEIGHT, default=ceiling_height
+                        ): selector.NumberSelector(
+                            selector.NumberSelectorConfig(
+                                min=2.0,
+                                max=5.0,
+                                step=0.1,
+                                unit_of_measurement="m",
+                                mode=selector.NumberSelectorMode.BOX,
+                            )
+                        ),
+                        vol.Required(
+                            "source_devices", default=current_devices
+                        ): selector.DeviceSelector(
+                            selector.DeviceSelectorConfig(
+                                multiple=True, integration=DOMAIN
+                            )
+                        ),
+                    }
+                ),
             )
 
         # -----------------------------------------------------------
@@ -355,7 +400,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         fan = _get_data("fan_entity", CONF_FAN_ENTITY)
         window = _get_data("window_state_sensor", CONF_WINDOW_STATE_SENSOR)
         door = _get_data("door_state_sensor", CONF_DOOR_STATE_SENSOR)
-        manual_speed = _get_data("manual_air_speed", CONF_MANUAL_AIR_SPEED, DEFAULT_AIR_SPEED_STILL)
+        manual_speed = _get_data(
+            "manual_air_speed", CONF_MANUAL_AIR_SPEED, DEFAULT_AIR_SPEED_STILL
+        )
         shading = _get_data("shading_entity", CONF_SHADING_ENTITY)
 
         is_radiant = _get_data("is_radiant_heating", CONF_IS_RADIANT, False)
@@ -365,11 +412,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         wind = _get_data("wind_speed_sensor", CONF_WIND_SPEED_SENSOR)
         pressure = _get_data("pressure_sensor", CONF_PRESSURE_SENSOR)
 
-        min_interval = _get_data("min_update_interval", CONF_MIN_UPDATE_INTERVAL, DEFAULT_MIN_UPDATE_INTERVAL)
+        min_interval = _get_data(
+            "min_update_interval", CONF_MIN_UPDATE_INTERVAL, DEFAULT_MIN_UPDATE_INTERVAL
+        )
         room_area = _get_data("room_area", CONF_ROOM_AREA, 15.0)
+        floor = _get_data("floor_level", CONF_FLOOR_LEVEL, 1)
 
         schema = {
             # --- CORE ---
+            vol.Required(CONF_FLOOR_LEVEL, default=floor): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=-2, max=10, step=1, mode=selector.NumberSelectorMode.BOX
+                )
+            ),
             vol.Required("air_temp_source", default=air_temp): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain="sensor", device_class="temperature"
@@ -385,13 +440,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             vol.Required(CONF_ROOM_AREA, default=room_area): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=1.0, max=500.0, step=0.1, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="m²"
+                    min=1.0,
+                    max=500.0,
+                    step=0.1,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="m²",
                 )
             ),
-            vol.Optional(CONF_MIN_UPDATE_INTERVAL, default=min_interval): selector.NumberSelector(
+            vol.Optional(
+                CONF_MIN_UPDATE_INTERVAL, default=min_interval
+            ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=0, max=300, step=5, unit_of_measurement="seconds",
-                    mode=selector.NumberSelectorMode.BOX
+                    min=0,
+                    max=300,
+                    step=5,
+                    unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.BOX,
                 )
             ),
             vol.Required(

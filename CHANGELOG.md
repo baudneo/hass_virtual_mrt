@@ -1,3 +1,9 @@
+# 0.2.3
+- Add floor level logic to calculate stratification and stack effect pressure differences
+  - configure each room with its floor level (e.g. basement = 0, main floor = 1, second floor = 2, etc.)
+  - calculate estimated temperature difference between floors based on stack effect equations
+  - expose a new sensor showing estimated pressure difference between the room and outside due to stack effect in Pa
+  - can be used to help with ventilation planning and understanding airflow patterns in multi-story homes
 # 0.2.2
 - Add an 'Aggregator' class to create floors, whole home, HVAC zones, etc. by combining multiple virtual room devices
   - Each room can be weighted individually to account for room size via its total area config/option entry

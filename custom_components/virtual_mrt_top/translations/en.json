@@ -13,7 +13,8 @@
         "description": "Set up a device aggregator to create a new virtual floor, whole house or hvac zone device based on existing Virtual MRT/T_op rooms.",
         "data": {
           "name": "Aggregator Name (Floor / Whole House, Zone)",
-          "source_devices": "Which virtual rooms to include in this aggregator?"
+          "source_devices": "Which virtual rooms to include in this aggregator?",
+          "ceiling_height": "Average Ceiling Height per Floor (m)"
         }
       },
       "room_setup": {
@@ -26,6 +27,7 @@
           "room_profile": "Room Profile",
           "orientation": "Main Window Orientation",
           "room_area": "Room Floor Area (m²)",
+          "floor_level": "Floor Level (-1=Basement, 0=Ground, 1=Upper)",
           "min_update_interval": "Minimum Update Interval (Throttle)",
           "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)"
         },
@@ -76,7 +78,9 @@
             "room_area": "Room Floor Area (m²)",
             "min_update_interval": "Minimum Update Interval (Throttle)",
             "is_radiant_heating": "Is this a Radiant Heating System? (Floor/Radiator)",
-            "source_devices": "Which virtual rooms to include in this aggregator?"
+            "source_devices": "Which virtual rooms to include in this aggregator?",
+            "ceiling_height": "Average Ceiling Height per Floor (m)",
+            "floor_level": "Floor Level (-1=Basement, 0=Ground, 1=Upper)"
           },
           "sections": {
             "sensors_section": {
@@ -151,6 +155,9 @@
       "calibration_k": { "name": "Estimated Insulation Factor" },
       "heat_flux": { "name": "Wall Heat Loss Flux" },
       "pmv": { "name": "Thermal Comfort (PMV)" },
+      "zone_temperature": {
+        "name": "Zone Temperature"
+      },
       "moisture_excess": {
         "name": "Moisture Excess",
         "state_attributes": {

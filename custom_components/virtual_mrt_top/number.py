@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Collection, Iterable
+from typing import List
 
 from homeassistant.components.number import (
     NumberMode,
@@ -22,11 +22,13 @@ from .const import (
     CONF_THERMAL_ALPHA,
     CONF_MANUAL_AIR_SPEED,
     CONF_HVAC_AIR_SPEED,
-    CONF_RADIANT_SURFACE_TEMP, CONF_METABOLISM, CONF_CLOTHING_INSULATION,
+    CONF_RADIANT_SURFACE_TEMP,
+    CONF_METABOLISM,
+    CONF_CLOTHING_INSULATION,
     CONF_DEVICE_TYPE,
     TYPE_AGGREGATOR,
+    get_device_info,
 )
-from .device_info import get_device_info
 
 
 async def async_setup_entry(
@@ -40,7 +42,13 @@ async def async_setup_entry(
     profile_key = config[CONF_ROOM_PROFILE]
     defaults = ROOM_PROFILES[profile_key]["data"]  # [f_out, f_win, k_loss, k_solar]
     device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
-    entities: List[VirtualNumber | VirtualFactorNumber | VirtualThermalAlphaNumber | VirtualSurfaceTargetTempNumber | VirtualAirSpeedNumber] = [
+    entities: List[
+        VirtualNumber
+        | VirtualFactorNumber
+        | VirtualThermalAlphaNumber
+        | VirtualSurfaceTargetTempNumber
+        | VirtualAirSpeedNumber
+    ] = [
         VirtualFactorNumber(
             entry,
             device_info,
@@ -91,28 +99,44 @@ async def async_setup_entry(
             entry, device_info, CONF_HVAC_AIR_SPEED, "hvac_air_speed", 0.4, 0.0, 2.0
         ),
         VirtualNumber(
-            entry, device_info,
-            CONF_CLOTHING_INSULATION, "clothing", "mdi:hanger",
-            0.6, 0.0, 3.0, 0.1, "clo"
+            entry,
+            device_info,
+            CONF_CLOTHING_INSULATION,
+            "clothing",
+            "mdi:hanger",
+            0.6,
+            0.0,
+            3.0,
+            0.1,
+            "clo",
         ),
         VirtualNumber(
-            entry, device_info,
-            CONF_METABOLISM, "metabolism", "mdi:run",
-            1.1, 0.8, 4.0, 0.1, "met"
-        )
+            entry,
+            device_info,
+            CONF_METABOLISM,
+            "metabolism",
+            "mdi:run",
+            1.1,
+            0.8,
+            4.0,
+            0.1,
+            "met",
+        ),
     ]
     if config.get(CONF_IS_RADIANT, False):
-        entities.append(
-            VirtualSurfaceTargetTempNumber(
-                entry,
-                device_info,
-                CONF_RADIANT_SURFACE_TEMP,
-                "radiant_surface_temp",
-                26.0,
-                0.0,
-                85.0,
-            )
-        ),
+        (
+            entities.append(
+                VirtualSurfaceTargetTempNumber(
+                    entry,
+                    device_info,
+                    CONF_RADIANT_SURFACE_TEMP,
+                    "radiant_surface_temp",
+                    26.0,
+                    0.0,
+                    85.0,
+                )
+            ),
+        )
     async_add_entities(entities)
 
 
@@ -164,6 +188,7 @@ class VirtualNumber(RestoreNumber):
         """Update the value."""
         self._attr_native_value = value
         self.async_write_ha_state()
+
 
 class VirtualFactorNumber(RestoreNumber):
     """A number entity that restores its value on restart."""

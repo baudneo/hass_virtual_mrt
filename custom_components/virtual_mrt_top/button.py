@@ -26,8 +26,8 @@ from .const import (
     MAX_SAVED_PROFILES,
     CONF_DEVICE_TYPE,
     TYPE_AGGREGATOR,
+    get_device_info,
 )
-from .device_info import get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 

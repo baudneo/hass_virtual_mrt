@@ -10,7 +10,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
     SensorStateClass,
-    EntityCategory
+    EntityCategory,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature, CONF_NAME
@@ -54,10 +54,13 @@ from .const import (
     CONF_MIN_UPDATE_INTERVAL,
     CONF_DEVICE_TYPE,
     TYPE_AGGREGATOR,
-    CONF_SOURCE_ENTITIES,
     CONF_ROOM_AREA,
+    DEFAULT_ROOM_AREA,
+    DEFAULT_CEILING_HEIGHT,
+    CONF_FLOOR_LEVEL,
+    CONF_CEILING_HEIGHT,
+    get_device_info,
 )
-from .device_info import get_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,9 +70,10 @@ async def async_setup_entry(
 ):
     """Set up sensors from a config entry."""
     config = entry.data
-    device_type = config.get(CONF_DEVICE_TYPE, "room")  # Default to room for old configs
+    device_type = config.get(
+        CONF_DEVICE_TYPE, "room"
+    )  # Default to room for old configs
     device_info = await get_device_info({(DOMAIN, entry.entry_id)}, config[CONF_NAME])
-
 
     # --- BRANCH 1: AGGREGATOR ---
     if device_type == TYPE_AGGREGATOR:
@@ -431,7 +435,9 @@ class VirtualMRTSensor(SensorEntity):
 
         return max(potential_speeds)
 
-    def _calculate_local_apparent_temp(self, t_out: float, wind_ms: float) -> float | None:
+    def _calculate_local_apparent_temp(
+        self, t_out: float, wind_ms: float
+    ) -> float | None:
         """
         Calculates Apparent Temperature (AAT) using local sensors.
         Formula covers both Wind Chill and Humidity effects.
@@ -641,7 +647,6 @@ class VirtualMRTSensor(SensorEntity):
             t_out_eff = t_out
             t_out_source = "dry_bulb_clamped"
 
-
         self._attributes["t_out_eff"] = round(t_out_eff, 2)
         self._attributes["t_out_eff_source"] = t_out_source
 
@@ -798,7 +803,8 @@ class VirtualOperativeTempSensor(SensorEntity):
         self._attr_device_info = device_info
         self._mrt_sensor = mrt_sensor
         self._air_entity = entry.data[CONF_AIR_TEMP_SOURCE]
-        self._room_area = entry.data.get(CONF_ROOM_AREA, 1.0)
+        self._room_area = entry.data.get(CONF_ROOM_AREA, DEFAULT_ROOM_AREA)
+        self._floor_level = entry.data.get(CONF_FLOOR_LEVEL, 1)
         self._attributes = {}
 
     @property
@@ -897,6 +903,7 @@ class VirtualOperativeTempSensor(SensorEntity):
                 self._attributes["convective_weighting_factor"] = round(
                     convective_weighting_B, 2
                 )
+                self._attributes["floor_level"] = self._floor_level
 
                 self.async_write_ha_state()
             except ValueError:
@@ -968,7 +975,7 @@ class Psychrometrics:
 
             # Heat Balance Equation terms
             # Radiation Term: 3.96*10^-8 * fcl * (Tcl^4 - Tr^4)
-            rad = 3.96 * 10 ** -8 * fcl * (t_cl_abs ** 4 - tr_abs ** 4)
+            rad = 3.96 * 10**-8 * fcl * (t_cl_abs**4 - tr_abs**4)
 
             # Convection Term: fcl * hc * (Tcl - Ta)
             conv = fcl * hc * (t_cl - ta)
@@ -997,7 +1004,7 @@ class Psychrometrics:
         # Dry Respiration
         hl4 = 0.0014 * m * (34 - ta)
         # Radiation
-        hl5 = 3.96 * 10 ** -8 * fcl * ((t_cl + 273.15) ** 4 - tr_abs ** 4)
+        hl5 = 3.96 * 10**-8 * fcl * ((t_cl + 273.15) ** 4 - tr_abs**4)
         # Convection
         hl6 = fcl * hc * (t_cl - ta)
 
@@ -1014,12 +1021,15 @@ class Psychrometrics:
         """
         # W = 0.622 * e / (P - e)
         # Result is kg/kg, multiply by 1000 for g/kg
-        if (pressure_hpa - vp_actual) <= 0: return 0.0
+        if (pressure_hpa - vp_actual) <= 0:
+            return 0.0
         w = 0.622 * vp_actual / (pressure_hpa - vp_actual)
         return w * 1000.0
 
     @staticmethod
-    def calculate_air_density(t_air: float, vp_actual: float, pressure_hpa: float) -> float:
+    def calculate_air_density(
+        t_air: float, vp_actual: float, pressure_hpa: float
+    ) -> float:
         """
         Calculate Moist Air Density in kg/m³.
         """
@@ -1227,7 +1237,7 @@ class VirtualDewPointSensor(VirtualPsychroBase):
         super().__init__(hass, entry, device_info)
         self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
 
-    def _update_value(self, t, rh, pressure): # Accept extra arg
+    def _update_value(self, t, rh, pressure):  # Accept extra arg
         self._attr_native_value = round(Psychrometrics.calculate_dew_point(t, rh), 1)
 
 
@@ -1297,7 +1307,9 @@ class VirtualEnthalpySensor(VirtualPsychroBase):
 
     def _update_value(self, t, rh, pressure):
         # Pass the dynamic pressure to the math helper
-        self._attr_native_value = round(Psychrometrics.calculate_enthalpy(t, rh, pressure), 2)
+        self._attr_native_value = round(
+            Psychrometrics.calculate_enthalpy(t, rh, pressure), 2
+        )
 
 
 class VirtualHumidexSensor(VirtualPsychroBase):
@@ -1501,16 +1513,20 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
             self._attributes["risk_level"] = "Critical"
             self._attr_icon = "mdi:alert-decagram"
 
+
 class VirtualCalibrationSensor(SensorEntity):
     """
     Diagnostic sensor that calculates the theoretical k_loss based on
     measured wall temperatures.
     """
+
     _attr_has_entity_name = True
     _attr_name = "Estimated Insulation Factor"
     _attr_icon = "mdi:ruler-square-compass"
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_entity_category = EntityCategory.DIAGNOSTIC # Keeps it out of the main dashboard
+    _attr_entity_category = (
+        EntityCategory.DIAGNOSTIC
+    )  # Keeps it out of the main dashboard
 
     # We don't set a unit because it's a factor (ratio), but we could use "k"
 
@@ -1537,7 +1553,7 @@ class VirtualCalibrationSensor(SensorEntity):
             async_track_state_change_event(
                 self.hass,
                 [self.entity_air, self.entity_weather, self.entity_wall, "sun.sun"],
-                self._handle_update
+                self._handle_update,
             )
         )
         self._handle_update(None)
@@ -1571,13 +1587,13 @@ class VirtualCalibrationSensor(SensorEntity):
             "t_wall": t_wall,
             "t_out": t_out,
             "delta_t": round(delta_t_total, 1),
-            "valid_conditions": False
+            "valid_conditions": False,
         }
 
         # 4. Validity Checks
         if is_daytime:
             self._attributes["status"] = "Invalid: Sun is up"
-            self._attr_native_value = None # Or keep last known
+            self._attr_native_value = None  # Or keep last known
         elif delta_t_total < 10:
             self._attributes["status"] = "Invalid: Low Delta T (<10°C)"
             self._attr_native_value = None
@@ -1620,6 +1636,7 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
     Calculates Heat Flux (Energy Loss) through the wall in W/m².
     Also estimates the effective R-Value/U-Value of the assembly.
     """
+
     _attr_name = "Wall Heat Flux"
     _attr_native_unit_of_measurement = "W/m²"
     _attr_device_class = SensorDeviceClass.IRRADIANCE
@@ -1648,18 +1665,20 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
         )
 
         entities = [self.entity_weather, self.mrt_sensor.entity_id]
-        if self.id_k_loss: entities.append(self.id_k_loss)
-        if self.entity_wall_sensor: entities.append(self.entity_wall_sensor)
-        if self.entity_outdoor_temp: entities.append(self.entity_outdoor_temp)
+        if self.id_k_loss:
+            entities.append(self.id_k_loss)
+        if self.entity_wall_sensor:
+            entities.append(self.entity_wall_sensor)
+        if self.entity_outdoor_temp:
+            entities.append(self.entity_outdoor_temp)
 
         self.async_on_remove(
-            async_track_state_change_event(
-                self.hass, entities, self._handle_update
-            )
+            async_track_state_change_event(self.hass, entities, self._handle_update)
         )
 
     def _get_float_state(self, entity_id, default=0.0):
-        if not entity_id: return default
+        if not entity_id:
+            return default
         state = self.hass.states.get(entity_id)
         if state and state.state not in ["unknown", "unavailable"]:
             try:
@@ -1676,7 +1695,9 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
         # 1. Get Air Speed from MRT Sensor (Central Source of Truth)
         v_air = 0.1  # Default Still Air
         if self.mrt_sensor.extra_state_attributes:
-            v_air = self.mrt_sensor.extra_state_attributes.get("air_speed_ms_convective", 0.1)
+            v_air = self.mrt_sensor.extra_state_attributes.get(
+                "air_speed_ms_convective", 0.1
+            )
 
         # 2. Radiative Coefficient (h_r)
         # Linearized estimate for typical room temps (20C) and emissivity (0.9)
@@ -1691,21 +1712,26 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
 
         return h_r + h_c
 
-    def _update_value(self, t_air, rh, pressure=None):  # pressure unused here but keeps signature
+    def _update_value(
+        self, t_air, rh, pressure=None
+    ):  # pressure unused here but keeps signature
         # 1. Get Outdoor Temp
         t_out = None
         if self.entity_outdoor_temp:
             t_out = self._get_float_state(self.entity_outdoor_temp, None)
         if t_out is None:
             w_state = self.hass.states.get(self.entity_weather)
-            if w_state: t_out = w_state.attributes.get("temperature")
-        if t_out is None: t_out = t_air - 10  # Fail safe default
+            if w_state:
+                t_out = w_state.attributes.get("temperature")
+        if t_out is None:
+            t_out = t_air - 10  # Fail safe default
 
         # 2. Determine Wall Surface Temp
         t_surface = None
         if self.entity_wall_sensor:
             val = self._get_float_state(self.entity_wall_sensor, None)
-            if val is not None: t_surface = val
+            if val is not None:
+                t_surface = val
 
         if t_surface is None:
             k_loss = self._get_float_state(self.id_k_loss, 0.14)
@@ -1751,6 +1777,7 @@ class VirtualPMVSensor(SensorEntity):
     Calculates Predicted Mean Vote (PMV) for thermal comfort.
     Inputs: Air Temp, MRT, Humidity, Air Speed, Clothing, Metabolism.
     """
+
     _attr_has_entity_name = True
     _attr_name = "Thermal Comfort (PMV)"
     _attr_native_unit_of_measurement = "PMV"
@@ -1776,8 +1803,12 @@ class VirtualPMVSensor(SensorEntity):
     async def async_added_to_hass(self):
         """Register listeners."""
         registry = er.async_get(self.hass)
-        self.id_clo = registry.async_get_entity_id("number", DOMAIN, f"{self._entry.entry_id}_clothing")
-        self.id_met = registry.async_get_entity_id("number", DOMAIN, f"{self._entry.entry_id}_metabolism")
+        self.id_clo = registry.async_get_entity_id(
+            "number", DOMAIN, f"{self._entry.entry_id}_clothing"
+        )
+        self.id_met = registry.async_get_entity_id(
+            "number", DOMAIN, f"{self._entry.entry_id}_metabolism"
+        )
 
         # Listen to the MRT sensor (which updates when T_air, V_air, etc change)
         # We piggyback on MRT updates to trigger PMV updates
@@ -1788,14 +1819,14 @@ class VirtualPMVSensor(SensorEntity):
         )
         # Also listen to Clo/Met changes
         entities = []
-        if self.id_clo: entities.append(self.id_clo)
-        if self.id_met: entities.append(self.id_met)
+        if self.id_clo:
+            entities.append(self.id_clo)
+        if self.id_met:
+            entities.append(self.id_met)
 
         if entities:
             self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, entities, self._handle_update
-                )
+                async_track_state_change_event(self.hass, entities, self._handle_update)
             )
 
     @property
@@ -1804,7 +1835,8 @@ class VirtualPMVSensor(SensorEntity):
         return self._attributes
 
     def _get_float_state(self, entity_id, default=0.0):
-        if not entity_id: return default
+        if not entity_id:
+            return default
         state = self.hass.states.get(entity_id)
         if state and state.state not in ["unknown", "unavailable"]:
             try:
@@ -1842,7 +1874,8 @@ class VirtualPMVSensor(SensorEntity):
             clo = self._get_float_state(self.id_clo, 0.6)  # Default 0.6 (light sweater)
             met = self._get_float_state(self.id_met, 1.1)  # Default 1.1 (typing)
 
-            if t_air is None: return
+            if t_air is None:
+                return
 
             # 2. Calculate PMV
             pmv = Psychrometrics.calculate_pmv(t_air, t_mrt, v_air, rh, met, clo)
@@ -1880,6 +1913,7 @@ class VirtualMoistureExcessSensor(VirtualPsychroBase):
     Positive values indicate internal moisture generation (cooking, showers, breathing).
     Used to control HRV Boost independently of Temperature.
     """
+
     _attr_name = "Moisture Excess"
     _attr_native_unit_of_measurement = "g/kg"
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -1903,18 +1937,19 @@ class VirtualMoistureExcessSensor(VirtualPsychroBase):
 
         # We also need to track dedicated outdoor sensors if they exist
         entities = []
-        if self.entity_outdoor_temp: entities.append(self.entity_outdoor_temp)
-        if self.entity_outdoor_hum: entities.append(self.entity_outdoor_hum)
+        if self.entity_outdoor_temp:
+            entities.append(self.entity_outdoor_temp)
+        if self.entity_outdoor_hum:
+            entities.append(self.entity_outdoor_hum)
 
         if entities:
             self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, entities, self._handle_update
-                )
+                async_track_state_change_event(self.hass, entities, self._handle_update)
             )
 
     def _get_float_state(self, entity_id, default=None):
-        if not entity_id: return default
+        if not entity_id:
+            return default
         state = self.hass.states.get(entity_id)
         if state and state.state not in ["unknown", "unavailable"]:
             try:
@@ -1936,8 +1971,10 @@ class VirtualMoistureExcessSensor(VirtualPsychroBase):
         if t_out is None or rh_out is None:
             w_state = self.hass.states.get(self.entity_weather)
             if w_state:
-                if t_out is None: t_out = w_state.attributes.get("temperature")
-                if rh_out is None: rh_out = w_state.attributes.get("humidity")
+                if t_out is None:
+                    t_out = w_state.attributes.get("temperature")
+                if rh_out is None:
+                    rh_out = w_state.attributes.get("humidity")
 
         # If still missing data, we can't calculate excess
         if t_out is None or rh_out is None:
@@ -1967,9 +2004,11 @@ class VirtualMoistureExcessSensor(VirtualPsychroBase):
             self._attributes["status"] = "High Load (Cooking/Shower/Humidifier)"
 
 
+# ... (Keep existing imports and previous classes) ...
+
 class VirtualZoneAggregator(SensorEntity):
     """
-    Aggregates multiple Virtual MRT devices.
+    Aggregates multiple Virtual MRT devices (Rooms OR other Zones).
     Calculates: Area-Weighted Avg T_op, and Total Zone Heat Loss (Watts).
     """
     _attr_has_entity_name = True
@@ -1979,6 +2018,9 @@ class VirtualZoneAggregator(SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:home-group"
 
+    # NEW: Give it a key so it can be found by parent aggregators
+    translation_key = "zone_temperature"
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, device_info):
         self.hass = hass
         self._entry = entry
@@ -1986,10 +2028,10 @@ class VirtualZoneAggregator(SensorEntity):
         device_info["model"] = "Virtual Room Aggregator"
         self._attr_device_info = device_info
 
-
         # We store Device IDs, but we need to resolve them to Entity IDs at runtime
         self.source_device_ids = entry.data.get("source_devices", [])
         self.monitored_entities = set()
+        self._ceiling_height = entry.data.get(CONF_CEILING_HEIGHT, DEFAULT_CEILING_HEIGHT)
         self._attributes = {}
 
     @property
@@ -2001,16 +2043,19 @@ class VirtualZoneAggregator(SensorEntity):
         """Resolve devices to entities and start listening."""
         registry = er.async_get(self.hass)
 
-        # Find the 'operative_temperature' sensor for each selected device
         for device_id in self.source_device_ids:
             entries = registry.entities.get_entries_for_device_id(device_id)
             for entry in entries:
-                # We specifically look for the operative temp sensor
-                # Strategy: Check translation_key or unique_id suffix
+                # 1. Look for Standard Rooms (Operative Temp)
                 if entry.domain == "sensor" and entry.translation_key == "operative_temperature":
                     self.monitored_entities.add(entry.entity_id)
-                # We can also look for heat_flux sensors to calculate Total Watts
+
+                # 2. Look for Standard Rooms (Heat Flux)
                 if entry.domain == "sensor" and entry.translation_key == "heat_flux":
+                    self.monitored_entities.add(entry.entity_id)
+
+                # 3. Look for Child Aggregators (Nested Zones)
+                if entry.domain == "sensor" and entry.translation_key == "zone_temperature":
                     self.monitored_entities.add(entry.entity_id)
 
         # Listen to these discovered entities
@@ -2031,172 +2076,131 @@ class VirtualZoneAggregator(SensorEntity):
     @callback
     def _handle_update(self, event):
         """Calculate Area-Weighted Averages."""
-        # Data structure: {device_id: {'temp': X, 'area': Y, 'flux': Z}}
+        # Data structure: {device_id: {'temp': X, 'area': Y, 'flux': Z, 'watts': W}}
         device_data = {}
         registry = er.async_get(self.hass)
 
-        # 1. Collect Data from all monitored entities
+        t_out_candidate = None
+
         for entity_id in self.monitored_entities:
             state_obj = self.hass.states.get(entity_id)
             if not state_obj or state_obj.state in ["unknown", "unavailable"]:
                 continue
 
-            # Map entity back to device_id to group T_op and Flux together
             entry = registry.async_get(entity_id)
             if not entry: continue
             dev_id = entry.device_id
 
             if dev_id not in device_data:
-                device_data[dev_id] = {'area': 1.0}  # Default area weight
+                device_data[dev_id] = {'area': 1.0, 'floor': 1}
 
             val = self._get_float(state_obj.state)
 
-            # Check what kind of sensor this is
+            # --- Capture Outdoor Temp (for Stack Effect) ---
+            if t_out_candidate is None:
+                t_out_candidate = state_obj.attributes.get("t_out_eff") or state_obj.attributes.get("outdoor_temp")
+
+            # --- CASE A: Standard Room (Operative Temp) ---
             if entry.translation_key == "operative_temperature":
                 device_data[dev_id]['temp'] = val
-                # Try to get area from attribute (Best source)
-                area = state_obj.attributes.get("room_area_m2")
-                if area: device_data[dev_id]['area'] = float(area)
+                device_data[dev_id]['area'] = float(state_obj.attributes.get("room_area_m2", 1.0))
+                device_data[dev_id]['floor'] = int(state_obj.attributes.get("floor_level", 1))
 
+            # --- CASE B: Standard Room (Heat Flux) ---
             elif entry.translation_key == "heat_flux":
                 device_data[dev_id]['flux'] = val
 
-        # 2. Perform Calculations
+            # --- CASE C: Nested Aggregator (Zone Temp) ---
+            elif entry.translation_key == "zone_temperature":
+                device_data[dev_id]['temp'] = val
+                # Map "Total Zone Area" -> "Area" for weighting
+                device_data[dev_id]['area'] = float(state_obj.attributes.get("total_zone_area_m2", 1.0))
+
+                # Map "Total Heat Loss" -> Direct Watts (Pre-calculated by child)
+                device_data[dev_id]['watts'] = float(state_obj.attributes.get("total_heat_loss_watts", 0.0))
+
+                # Floor Level?
+                # If the child aggregator represents a single floor, it should have 'floor_level'
+                # If mixed, it might be missing. Default to 1 to avoid crash, but maybe exclude from stack?
+                if "floor_level" in state_obj.attributes:
+                    device_data[dev_id]['floor'] = int(state_obj.attributes["floor_level"])
+                # (If missing, we just won't be able to plot it in the stack effect calc)
+
+        # --- Aggregation Logic ---
+        floors = {}
         total_area = 0.0
         weighted_temp_sum = 0.0
         total_watts_loss = 0.0
-
         valid_temp_count = 0
 
         for dev_id, data in device_data.items():
             area = data.get('area', 1.0)
 
-            # Weighted Temp
+            # 1. Weighted Temp
             if 'temp' in data:
                 weighted_temp_sum += (data['temp'] * area)
                 total_area += area
                 valid_temp_count += 1
 
-            # Total Energy Loss (Watts) = Flux (W/m2) * Area (m2)
-            if 'flux' in data and 'area' in data:
+                # Group for Stack Effect (if floor known)
+                if 'floor' in data:
+                    f_lvl = data['floor']
+                    if f_lvl not in floors: floors[f_lvl] = []
+                    floors[f_lvl].append(data['temp'])
+
+            # 2. Total Energy Loss (Watts)
+            # If child is a Zone, it has 'watts' pre-calculated
+            if 'watts' in data:
+                total_watts_loss += data['watts']
+            # If child is a Room, calculate Flux * Area
+            elif 'flux' in data:
                 total_watts_loss += (data['flux'] * area)
 
-        # 3. Output Results
+        # --- Output 1: Weighted Temp & Watts ---
         if total_area > 0 and valid_temp_count > 0:
             avg_temp = weighted_temp_sum / total_area
             self._attr_native_value = round(avg_temp, 2)
 
             self._attributes["total_zone_area_m2"] = round(total_area, 1)
             self._attributes["total_heat_loss_watts"] = round(total_watts_loss, 0)
-            self._attributes["active_rooms"] = valid_temp_count
+            self._attributes["active_sources"] = valid_temp_count
         else:
             self._attr_native_value = None
 
-        self.async_write_ha_state()
+        # --- Output 2: Stack Effect & Floor Identity ---
+        stack_pressure = 0.0
+        stratification = 0.0
 
+        unique_floors = sorted(list(floors.keys()))
+        self._attributes["floors_included"] = unique_floors
 
-class VirtualZoneAggregatorOLD(SensorEntity):
-    """
-    Aggregates multiple Virtual MRT sensors into a Zone/Floor average.
-    Calculates: Avg T_op, Avg MRT, Max Mold Risk.
-    """
-    _attr_has_entity_name = True
-    _attr_name = "Zone Operative Temperature"  # Main state is T_op
-    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_device_class = SensorDeviceClass.TEMPERATURE
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:home-group"
-    _attr_suggested_display_precision = 2
+        # If this aggregator purely represents ONE floor (e.g. "Main Floor Zone"),
+        # expose that ID so a parent aggregator can use it for stack calcs.
+        if len(unique_floors) == 1:
+            self._attributes["floor_level"] = unique_floors[0]
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry):
-        self.hass = hass
-        self._entry = entry
-        self._attr_unique_id = f"{entry.entry_id}_aggregator"
+        if len(unique_floors) >= 2:
+            min_floor = unique_floors[0]
+            max_floor = unique_floors[-1]
 
-        # We manually build device info since this doesn't use the standard helper
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": entry.data[CONF_NAME],
-            "manufacturer": "Virtual MRT/T_op",
-            "model": "Zone Aggregator",
-        }
+            # Avg Temp at Bottom vs Top
+            t_bottom = sum(floors[min_floor]) / len(floors[min_floor])
+            t_top = sum(floors[max_floor]) / len(floors[max_floor])
 
-        self.source_entities = entry.data.get(CONF_SOURCE_ENTITIES, [])
-        self._attributes = {}
+            stratification = t_top - t_bottom
 
-    async def async_added_to_hass(self):
-        """Register listeners for all source entities."""
-        self.async_on_remove(
-            async_track_state_change_event(
-                self.hass, self.source_entities, self._handle_update
-            )
-        )
-        self._handle_update(None)
+            # Stack Height
+            height_diff = (max_floor - min_floor + 1) * self._ceiling_height
 
-    def _get_float(self, state):
-        try:
-            return float(state)
-        except (ValueError, TypeError):
-            return None
+            # Stack Pressure
+            t_out = t_out_candidate
+            if t_out is not None:
+                term_out = 1.0 / (t_out + 273.15)
+                term_in = 1.0 / (((t_top + t_bottom) / 2) + 273.15)
+                stack_pressure = 3465 * height_diff * (term_out - term_in)
 
-    @callback
-    def _handle_update(self, event):
-        """Calculate averages."""
-        temps = []
-        mrts = []
-        mold_risks = []
-        fluxes = []
-
-        for entity_id in self.source_entities:
-            state_obj = self.hass.states.get(entity_id)
-            if not state_obj or state_obj.state in ["unknown", "unavailable"]:
-                continue
-
-            # Main State (Assume sources are T_op sensors, or MRT sensors)
-            # If the user selected T_op sensors, state is T_op.
-            val = self._get_float(state_obj.state)
-            if val is not None:
-                temps.append(val)
-
-            # Try to grab attributes if they exist (assuming standard MRT/Top sensor)
-            # If the user selected MRT sensors, we look for 'operative_temperature' attr?
-            # Or if they selected T_op sensors, we look for 'mrt_smoothed' attr?
-            # Strategy: Be flexible.
-
-            attrs = state_obj.attributes
-
-            # MRT
-            mrt = attrs.get("mrt_smoothed") or attrs.get("mrt_clamped") or (val if "mrt" in entity_id else None)
-            if mrt is not None: mrts.append(float(mrt))
-
-            # Heat Flux (Look for sibling sensor or attribute?
-            # Aggregator logic is limited if we only select ONE entity per room)
-            # For V1, we just average the main states.
-
-            # MOLD RISK: This is usually a separate sensor.
-            # If the user wants to aggregate Mold Risk, they should create a separate
-            # Aggregator instance for "Zone Mold Risk" and select all mold sensors.
-            # BUT, we can try to be smart. If the source entity has a "mold_risk" attribute
-            # (which our sensors don't), we could use it.
-            # Our Mold Risk is a separate entity.
-
-            # Let's keep it simple: The Aggregator averages the STATE of the selected entities.
-
-        if not temps:
-            self._attr_native_value = None
-            return
-
-        # Calculate Average
-        avg_temp = sum(temps) / len(temps)
-        self._attr_native_value = round(avg_temp, 2)
-
-        # Attributes
-        self._attributes["source_count"] = len(temps)
-        self._attributes["min_value"] = min(temps)
-        self._attributes["max_value"] = max(temps)
-        self._attributes["spread"] = round(max(temps) - min(temps), 2)
-
-        if mrts:
-            self._attributes["avg_mrt"] = round(sum(mrts) / len(mrts), 2)
+            self._attributes["stratification_delta"] = round(stratification, 2)
+            self._attributes["stack_effect_pressure_pa"] = round(stack_pressure, 1)
+            self._attributes["stack_height_m"] = round(height_diff, 1)
 
         self.async_write_ha_state()

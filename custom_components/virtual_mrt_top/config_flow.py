@@ -43,6 +43,7 @@ from .const import (
     TYPE_ROOM,
     CONF_ROOM_AREA,
     DEFAULT_CEILING_HEIGHT,
+    CONF_CALIBRATION_RH_SENSOR,
 )
 
 
@@ -205,6 +206,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                 ): selector.EntitySelector(
                                     selector.EntitySelectorConfig(
                                         domain="sensor", device_class="temperature"
+                                    )
+                                ),
+                                vol.Optional(
+                                    CONF_CALIBRATION_RH_SENSOR
+                                ): selector.EntitySelector(
+                                    selector.EntitySelectorConfig(
+                                        domain="sensor", device_class="humidity"
                                     )
                                 ),
                                 vol.Optional(
@@ -406,6 +414,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         shading = _get_data("shading_entity", CONF_SHADING_ENTITY)
 
         is_radiant = _get_data("is_radiant_heating", CONF_IS_RADIANT, False)
+        cal_rh_sensor = _get_data("calibration_rh_sensor", CONF_CALIBRATION_RH_SENSOR)  # <--- NEW
         wall_sensor = _get_data("wall_surface_sensor", CONF_WALL_SURFACE_SENSOR)
         out_hum = _get_data("outdoor_humidity_sensor", CONF_OUTDOOR_HUMIDITY_SENSOR)
         out_temp = _get_data("outdoor_temp_sensor", CONF_OUTDOOR_TEMP_SENSOR)
@@ -483,6 +492,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         ): selector.EntitySelector(
                             selector.EntitySelectorConfig(
                                 domain="sensor", device_class="temperature"
+                            )
+                        ),
+                        vol.Optional(
+                            "calibration_rh_sensor",
+                            description={"suggested_value": cal_rh_sensor},
+                        ): selector.EntitySelector(
+                            selector.EntitySelectorConfig(
+                                domain="sensor", device_class="humidity"
                             )
                         ),
                         vol.Optional(

@@ -60,6 +60,7 @@ from .const import (
     CONF_FLOOR_LEVEL,
     CONF_CEILING_HEIGHT,
     get_device_info,
+    CONF_CALIBRATION_RH_SENSOR,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1305,11 +1306,92 @@ class VirtualEnthalpySensor(VirtualPsychroBase):
         super().__init__(hass, entry, device_info)
         self._attr_unique_id = f"{entry.entry_id}_{self._attr_unique_id_suffix}"
 
-    def _update_value(self, t, rh, pressure):
-        # Pass the dynamic pressure to the math helper
-        self._attr_native_value = round(
-            Psychrometrics.calculate_enthalpy(t, rh, pressure), 2
+        # Lookups for Outdoor data
+        self.entity_outdoor_temp = entry.data.get(CONF_OUTDOOR_TEMP_SENSOR)
+        self.entity_outdoor_hum = entry.data.get(CONF_OUTDOOR_HUMIDITY_SENSOR)
+
+    async def async_added_to_hass(self):
+        """Register listeners (extending base)."""
+        # Base tracks Indoor T, Indoor RH, Pressure, Weather
+        # We override to include outdoor sensors in the listener list
+        entities = [self.entity_air, self.entity_rh]
+        if self.entity_pressure:
+            entities.append(self.entity_pressure)
+        elif self.entity_weather:
+            entities.append(self.entity_weather)
+
+        # Track dedicated outdoor sensors if they exist
+        if self.entity_outdoor_temp:
+            entities.append(self.entity_outdoor_temp)
+        if self.entity_outdoor_hum:
+            entities.append(self.entity_outdoor_hum)
+
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, entities, self._handle_update
+            )
         )
+        self._handle_update(None)
+
+    def _get_float_state(self, entity_id):
+        """Helper to safely get float state."""
+        if not entity_id: return None
+        state = self.hass.states.get(entity_id)
+        if state and state.state not in ["unknown", "unavailable"]:
+            try:
+                return float(state.state)
+            except ValueError:
+                pass
+        return None
+
+    def _update_value(self, t, rh, pressure):
+        # 1. Calculate Indoor Enthalpy
+        h_in = Psychrometrics.calculate_enthalpy(t, rh, pressure)
+        self._attr_native_value = round(h_in, 2)
+
+        # 2. Get Outdoor Data (Priority: Dedicated Sensors -> Weather Fallback)
+        t_out = self._get_float_state(self.entity_outdoor_temp)
+        rh_out = self._get_float_state(self.entity_outdoor_hum)
+        source_type = "dedicated_sensors"
+
+        # Fallback to Weather Entity if dedicated sensors are missing or unavailable
+        if t_out is None or rh_out is None:
+            w_state = self.hass.states.get(self.entity_weather)
+            if w_state:
+                # Only overwrite if we didn't find the specific sensor value
+                if t_out is None:
+                    t_out = w_state.attributes.get("temperature")
+                if rh_out is None:
+                    rh_out = w_state.attributes.get("humidity")
+                source_type = "weather_entity"
+
+        # 3. Calculate Outdoor Enthalpy & Compare
+        if t_out is not None and rh_out is not None:
+            try:
+                # Ensure values are floats (weather attrs might be ints)
+                t_out = float(t_out)
+                rh_out = float(rh_out)
+
+                h_out = Psychrometrics.calculate_enthalpy(t_out, rh_out, pressure)
+
+                self._attributes["outdoor_enthalpy"] = round(h_out, 2)
+                self._attributes["outdoor_source"] = source_type
+
+                # Difference: Positive means Inside has MORE energy (Open windows to cool)
+                # Negative means Inside has LESS energy (Keep windows closed to stay cool)
+                diff = h_in - h_out
+                self._attributes["enthalpy_difference"] = round(diff, 2)
+
+                # Simple recommendation state
+                if diff > 1.0:
+                    self._attributes["economizer_status"] = "Free Cooling Available"
+                elif diff < -1.0:
+                    self._attributes["economizer_status"] = "Unfavorable (Keep Closed)"
+                else:
+                    self._attributes["economizer_status"] = "Neutral"
+
+            except (ValueError, TypeError):
+                pass
 
 
 class VirtualHumidexSensor(VirtualPsychroBase):
@@ -1378,8 +1460,9 @@ class VirtualPerceptionSensor(VirtualPsychroBase):
 
 class VirtualMoldRiskSensor(VirtualPsychroBase):
     """
-    Calculates Mold Risk based on the estimated humidity at the wall surface.
-    Uses k_loss and T_out to model the wall temperature drop.
+    Calculates Mold Risk.
+    Prioritizes physical Surface Humidity measurement if available.
+    Falls back to calculating estimated humidity at the wall surface using T_out/k_loss.
     """
 
     _attr_name = "Mold Risk"
@@ -1399,6 +1482,7 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
         self.id_k_loss = None
         self.entity_weather = entry.data[CONF_WEATHER_ENTITY]
         self.entity_wall_sensor = entry.data.get(CONF_WALL_SURFACE_SENSOR)
+        self.entity_cal_rh = entry.data.get(CONF_CALIBRATION_RH_SENSOR)  # <--- New Input
         self.entity_outdoor_temp = entry.data.get(CONF_OUTDOOR_TEMP_SENSOR)
 
     async def async_added_to_hass(self):
@@ -1415,6 +1499,8 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
             entities_to_track.append(self.id_k_loss)
         if self.entity_wall_sensor:
             entities_to_track.append(self.entity_wall_sensor)
+        if self.entity_cal_rh:  # <--- Track New Sensor
+            entities_to_track.append(self.entity_cal_rh)
         if self.entity_outdoor_temp:
             entities_to_track.append(self.entity_outdoor_temp)
 
@@ -1436,6 +1522,17 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
         return default
 
     def _update_value(self, t_air, rh, pressure):
+        # --- 1. TRY DIRECT MEASUREMENT (The Gold Standard) ---
+        if self.entity_cal_rh:
+            direct_rh = self._get_float_state(self.entity_cal_rh, None)
+            if direct_rh is not None:
+                self._attr_native_value = round(direct_rh, 1)
+                self._attributes["calculation_method"] = "measured_surface_humidity"
+                self._set_risk_level(direct_rh)
+                # We still calculate the rest for context attributes, but the State is real.
+                # (Optional: return early if you don't care about theoretical attributes)
+
+        # --- 2. PREPARE DATA FOR CALCULATION ---
         # 1. Get Outdoor Temp (Priority: Sensor -> Weather -> Fallback)
         t_out = None
 
@@ -1455,27 +1552,22 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
 
         # 2. Determine Wall Surface Temperature (T_surface)
         t_surface = None
-        calc_method = "calculated_k_loss"
 
         # A. Try Physical Sensor
         if self.entity_wall_sensor:
             val = self._get_float_state(self.entity_wall_sensor, None)
             if val is not None:
                 t_surface = val
-                calc_method = "physical_sensor"
 
         # B. Fallback to Calculation
         if t_surface is None:
             k_loss = self._get_float_state(self.id_k_loss, 0.14)
-
             delta_t = t_air - t_out
             wall_temp_drop = 0.0
             if delta_t > 0:
                 # Formula: T_surf = T_air - (Delta_T * k_loss)
                 wall_temp_drop = delta_t * k_loss
-
             t_surface = t_air - wall_temp_drop
-
             self._attributes["insulation_factor_k"] = k_loss
 
         # 3. Calculate Relative Humidity at the Surface (Surface RH)
@@ -1495,18 +1587,29 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
 
         surface_rh = min(100.0, max(0.0, surface_rh))
 
-        self._attr_native_value = round(surface_rh, 1)
+        # --- 3. DECIDE FINAL OUTPUT ---
+        # If we didn't have a direct sensor, use the calculated value
+        if self._attr_native_value is None or self._attributes.get("calculation_method") != "measured_surface_humidity":
+            self._attr_native_value = round(surface_rh, 1)
+
+            if self.entity_wall_sensor and self._get_float_state(self.entity_wall_sensor, None) is not None:
+                self._attributes["calculation_method"] = "calculated_using_wall_temp_sensor"
+            else:
+                self._attributes["calculation_method"] = "calculated_using_k_loss"
+
+            self._set_risk_level(surface_rh)
 
         # Attributes
         self._attributes["outdoor_temp"] = t_out
         self._attributes["wall_surface_temp"] = round(t_surface, 1)
-        self._attributes["calculation_method"] = calc_method
+        self._attributes["theoretical_surface_rh"] = round(surface_rh, 1)
 
-        # Set Risk Levels
-        if surface_rh < 60:
+    def _set_risk_level(self, rh_val):
+        """Helper to set icon and risk text based on RH."""
+        if rh_val < 60:
             self._attributes["risk_level"] = "Low"
             self._attr_icon = "mdi:shield-check"
-        elif surface_rh < 80:
+        elif rh_val < 80:
             self._attributes["risk_level"] = "Warning"
             self._attr_icon = "mdi:alert-box-outline"
         else:
@@ -1518,6 +1621,8 @@ class VirtualCalibrationSensor(SensorEntity):
     """
     Diagnostic sensor that calculates the theoretical k_loss based on
     measured wall temperatures.
+
+    NEW: Now also validates the calibration seal by comparing Absolute Humidity.
     """
 
     _attr_has_entity_name = True
@@ -1537,8 +1642,10 @@ class VirtualCalibrationSensor(SensorEntity):
         self._attr_device_info = device_info
 
         self.entity_air = entry.data[CONF_AIR_TEMP_SOURCE]
+        self.entity_rh = entry.data.get(CONF_RH_SENSOR)  # Room RH
         self.entity_weather = entry.data[CONF_WEATHER_ENTITY]
-        self.entity_wall = entry.data[CONF_WALL_SURFACE_SENSOR]
+        self.entity_wall = entry.data[CONF_WALL_SURFACE_SENSOR]  # Wall Temp
+        self.entity_cal_rh = entry.data.get(CONF_CALIBRATION_RH_SENSOR)  # Wall RH
 
         # Attributes to help the user debug
         self._attributes = {}
@@ -1549,14 +1656,30 @@ class VirtualCalibrationSensor(SensorEntity):
 
     async def async_added_to_hass(self):
         """Track sensors."""
+        entities = [self.entity_air, self.entity_weather, self.entity_wall, "sun.sun"]
+        if self.entity_cal_rh:
+            entities.append(self.entity_cal_rh)
+        if self.entity_rh:
+            entities.append(self.entity_rh)
+
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
-                [self.entity_air, self.entity_weather, self.entity_wall, "sun.sun"],
+                entities,
                 self._handle_update,
             )
         )
         self._handle_update(None)
+
+    def _get_float_state(self, entity_id, default=None):
+        if not entity_id: return default
+        state = self.hass.states.get(entity_id)
+        if state and state.state not in ["unknown", "unavailable"]:
+            try:
+                return float(state.state)
+            except ValueError:
+                pass
+        return default
 
     @callback
     def _handle_update(self, event):
@@ -1566,13 +1689,15 @@ class VirtualCalibrationSensor(SensorEntity):
 
         # 2. Get Temperatures
         try:
-            t_air = float(self.hass.states.get(self.entity_air).state)
-            t_wall = float(self.hass.states.get(self.entity_wall).state)
+            t_air = self._get_float_state(self.entity_air)
+            t_wall = self._get_float_state(self.entity_wall)
 
             # Get Outdoor Temp (Prefer raw temp for calibration as wind chill
             # effects are complex, but using T_out allows pure U-value estimation)
             w_state = self.hass.states.get(self.entity_weather)
             t_out = float(w_state.attributes.get("temperature"))
+
+            if t_air is None or t_wall is None: raise ValueError
         except (ValueError, AttributeError, TypeError):
             self._attr_native_value = None
             self.async_write_ha_state()
@@ -1589,6 +1714,44 @@ class VirtualCalibrationSensor(SensorEntity):
             "delta_t": round(delta_t_total, 1),
             "valid_conditions": False,
         }
+
+        # --- NEW: RH Validation Logic ---
+        rh_air = self._get_float_state(self.entity_rh)
+        rh_wall = self._get_float_state(self.entity_cal_rh)
+
+        if rh_air is not None and rh_wall is not None:
+            # Calculate Absolute Humidity for both
+            vp_sat_air = Psychrometrics.calculate_vapor_pressure(t_air)
+            vp_actual_air = vp_sat_air * (rh_air / 100.0)
+
+            vp_sat_wall = Psychrometrics.calculate_vapor_pressure(t_wall)
+            vp_actual_wall = vp_sat_wall * (rh_wall / 100.0)
+
+            # Volumetric Abs Humidity (g/m3) approx
+            abs_hum_air = (1000.0 * vp_actual_air * 100.0) / (461.5 * (t_air + 273.15))
+            abs_hum_wall = (1000.0 * vp_actual_wall * 100.0) / (461.5 * (t_wall + 273.15))
+
+            # Theoretical Wall RH (if trapped air was perfect)
+            # VP_actual should be constant (vp_actual_air), but VP_sat drops
+            if vp_sat_wall > 0:
+                predicted_wall_rh = min(100.0, (vp_actual_air / vp_sat_wall) * 100.0)
+            else:
+                predicted_wall_rh = 100.0
+
+            abs_diff = abs_hum_wall - abs_hum_air
+
+            self._attributes["measured_surface_rh"] = rh_wall
+            self._attributes["predicted_surface_rh"] = round(predicted_wall_rh, 1)
+            self._attributes["abs_humidity_room"] = round(abs_hum_air, 2)
+            self._attributes["abs_humidity_surface"] = round(abs_hum_wall, 2)
+            self._attributes["abs_humidity_bias"] = round(abs_diff, 2)
+
+            if abs(abs_diff) < 0.5:
+                self._attributes["seal_quality"] = "Excellent (Airtight)"
+            elif abs(abs_diff) < 1.0:
+                self._attributes["seal_quality"] = "Good (Minor Leakage)"
+            else:
+                self._attributes["seal_quality"] = "Poor (Leaky Seal or Ingress)"
 
         # 4. Validity Checks
         if is_daytime:

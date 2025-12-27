@@ -45,11 +45,13 @@ DEFAULT_MIN_UPDATE_INTERVAL = 30  # Seconds
 CONF_DEVICE_TYPE = "device_type"
 TYPE_ROOM = "room"
 TYPE_AGGREGATOR = "aggregator"
-CONF_SOURCE_ENTITIES = "source_entities"
 CONF_ROOM_AREA = "room_area"
 DEFAULT_ROOM_AREA = 15.0
+DEFAULT_ZONE_AREA = 15.0
+DEFAULT_ROOM_FLOOR = 1
 CONF_PRECIPITATION_SENSOR = "precipitation_sensor"
 CONF_UV_INDEX_SENSOR = "uv_index_sensor"
+CONF_IS_HVAC_ZONE = "is_hvac_zone"
 
 ORIENTATION_OPTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 

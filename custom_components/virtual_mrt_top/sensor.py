@@ -63,6 +63,7 @@ from .const import (
     CONF_CALIBRATION_RH_SENSOR,
     CONF_PRECIPITATION_SENSOR,
     CONF_UV_INDEX_SENSOR,
+    CONF_IS_HVAC_ZONE, DEFAULT_ROOM_FLOOR, DEFAULT_ZONE_AREA,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -473,39 +474,6 @@ class VirtualMRTSensor(SensorEntity):
 
         return app_temp
 
-    def _calculate_local_apparent_temp_OLD(
-        self, t_out: float, wind_ms: float
-    ) -> float | None:
-        """
-        Calculates Apparent Temperature (Feels Like) using local sensors.
-        Approximation of Australian Apparent Temp formula (Steadman),
-        which covers both Wind Chill and Humidity effects reasonably well.
-        AT = Ta + 0.33*e - 0.70*ws - 4.00
-        """
-        # 1. Get Outdoor Humidity (Local or Weather)
-        rh_out = self._get_float(self.entity_outdoor_hum, None)
-
-        if rh_out is None:
-            # Fallback to weather entity humidity
-            w_state = self.hass.states.get(self.entity_weather)
-            if w_state:
-                rh_out = w_state.attributes.get("humidity")
-
-        if rh_out is None:
-            return None  # Cannot calculate without humidity
-
-        # 2. Calculate Vapor Pressure (e) in hPa
-        # Using the Psychrometrics helper we defined earlier
-        vp_sat = Psychrometrics.calculate_vapor_pressure(t_out)
-        vp_actual = vp_sat * (rh_out / 100.0)
-
-        # 3. Apply Formula
-        # AT = Ta + 0.33*e - 0.70*ws - 4.00
-        # Note: Wind speed must be m/s.
-        app_temp = t_out + (0.33 * vp_actual) - (0.70 * wind_ms) - 4.00
-
-        return app_temp
-
     def _update_calc(self):
         """Perform the math and store all intermediate values."""
 
@@ -802,6 +770,14 @@ class VirtualMRTSensor(SensorEntity):
         self._attributes["loss_term"] = round(term_loss, 3)
         self._attributes["solar_term"] = round(term_solar, 3)
         self._attributes["mrt_unclamped"] = round(mrt_calc, 2)
+
+        # --- Estimated Wall Surface Temp ---
+        # Theoretical inner surface temp of the exterior wall
+        # T_surf = T_air - (Delta_T * k_loss)
+        # We use t_out_eff to account for wind chill cooling the exterior
+        if t_air is not None and t_out_eff is not None:
+            t_wall_est = t_air - ((t_air - t_out_eff) * k_loss)
+            self._attributes["estimated_wall_surface_temp"] = round(t_wall_est, 1)
 
         # --- Clamping ---
         lower_dyn = max(t_out_eff + 2.0, t_air - 3.0)
@@ -2207,8 +2183,6 @@ class VirtualMoistureExcessSensor(VirtualPsychroBase):
             self._attributes["status"] = "High Load (Cooking/Shower/Humidifier)"
 
 
-# ... (Keep existing imports and previous classes) ...
-
 class VirtualZoneAggregator(SensorEntity):
     """
     Aggregates multiple Virtual MRT devices (Rooms OR other Zones).
@@ -2221,7 +2195,6 @@ class VirtualZoneAggregator(SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:home-group"
 
-    # NEW: Give it a key so it can be found by parent aggregators
     translation_key = "zone_temperature"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, device_info):
@@ -2235,6 +2208,7 @@ class VirtualZoneAggregator(SensorEntity):
         self.source_device_ids = entry.data.get("source_devices", [])
         self.monitored_entities = set()
         self._ceiling_height = entry.data.get(CONF_CEILING_HEIGHT, DEFAULT_CEILING_HEIGHT)
+        self._is_hvac_zone = entry.data.get(CONF_IS_HVAC_ZONE, False)
         self._attributes = {}
 
     @property
@@ -2283,7 +2257,8 @@ class VirtualZoneAggregator(SensorEntity):
         device_data = {}
         registry = er.async_get(self.hass)
 
-        t_out_candidate = None
+        t_out = None
+        t_eff = None
 
         for entity_id in self.monitored_entities:
             state_obj = self.hass.states.get(entity_id)
@@ -2295,19 +2270,24 @@ class VirtualZoneAggregator(SensorEntity):
             dev_id = entry.device_id
 
             if dev_id not in device_data:
-                device_data[dev_id] = {'area': 1.0, 'floor': 1}
+                name = state_obj.name or entry.original_name or entity_id
+                device_data[dev_id] = {'area': DEFAULT_ROOM_AREA, 'floor': DEFAULT_ROOM_FLOOR, 'name': name}
 
             val = self._get_float(state_obj.state)
 
             # --- Capture Outdoor Temp (for Stack Effect) ---
-            if t_out_candidate is None:
-                t_out_candidate = state_obj.attributes.get("t_out_eff") or state_obj.attributes.get("outdoor_temp")
+            if t_out is None:
+                if "t_out_eff" in state_obj.attributes:
+                    t_eff = state_obj.attributes["t_out_eff"]
+                if "outdoor_temp" in state_obj.attributes:
+                    t_out = state_obj.attributes["outdoor_temp"]
+
 
             # --- CASE A: Standard Room (Operative Temp) ---
             if entry.translation_key == "operative_temperature":
                 device_data[dev_id]['temp'] = val
-                device_data[dev_id]['area'] = float(state_obj.attributes.get("room_area_m2", 1.0))
-                device_data[dev_id]['floor'] = int(state_obj.attributes.get("floor_level", 1))
+                device_data[dev_id]['area'] = float(state_obj.attributes.get("room_area_m2", DEFAULT_ROOM_AREA))
+                device_data[dev_id]['floor'] = int(state_obj.attributes.get("floor_level", DEFAULT_ROOM_FLOOR))
 
             # --- CASE B: Standard Room (Heat Flux) ---
             elif entry.translation_key == "heat_flux":
@@ -2317,7 +2297,7 @@ class VirtualZoneAggregator(SensorEntity):
             elif entry.translation_key == "zone_temperature":
                 device_data[dev_id]['temp'] = val
                 # Map "Total Zone Area" -> "Area" for weighting
-                device_data[dev_id]['area'] = float(state_obj.attributes.get("total_zone_area_m2", 1.0))
+                device_data[dev_id]['area'] = float(state_obj.attributes.get("total_zone_area_m2", DEFAULT_ZONE_AREA))
 
                 # Map "Total Heat Loss" -> Direct Watts (Pre-calculated by child)
                 device_data[dev_id]['watts'] = float(state_obj.attributes.get("total_heat_loss_watts", 0.0))
@@ -2331,79 +2311,125 @@ class VirtualZoneAggregator(SensorEntity):
 
         # --- Aggregation Logic ---
         floors = {}
+        temps_for_spread = []
         total_area = 0.0
         weighted_temp_sum = 0.0
         total_watts_loss = 0.0
         valid_temp_count = 0
 
         for dev_id, data in device_data.items():
-            area = data.get('area', 1.0)
+            area = data.get('area', DEFAULT_ROOM_AREA)
 
             # 1. Weighted Temp
             if 'temp' in data:
-                weighted_temp_sum += (data['temp'] * area)
+                val = data['temp']
+                weighted_temp_sum += (val * area)
                 total_area += area
                 valid_temp_count += 1
 
-                # Group for Stack Effect (if floor known)
+                # Store for HVAC Spread Calc
+                temps_for_spread.append((val, data.get('name', 'Unknown')))
+
+                # Store for Stack Effect
                 if 'floor' in data:
                     f_lvl = data['floor']
                     if f_lvl not in floors: floors[f_lvl] = []
-                    floors[f_lvl].append(data['temp'])
+                    floors[f_lvl].append(val)
 
-            # 2. Total Energy Loss (Watts)
-            # If child is a Zone, it has 'watts' pre-calculated
+            # 2. Watts
             if 'watts' in data:
                 total_watts_loss += data['watts']
-            # If child is a Room, calculate Flux * Area
             elif 'flux' in data:
                 total_watts_loss += (data['flux'] * area)
 
-        # --- Output 1: Weighted Temp & Watts ---
+            # --- Output Core Stats ---
         if total_area > 0 and valid_temp_count > 0:
             avg_temp = weighted_temp_sum / total_area
             self._attr_native_value = round(avg_temp, 2)
-
             self._attributes["total_zone_area_m2"] = round(total_area, 1)
             self._attributes["total_heat_loss_watts"] = round(total_watts_loss, 0)
             self._attributes["active_sources"] = valid_temp_count
         else:
             self._attr_native_value = None
 
-        # --- Output 2: Stack Effect & Floor Identity ---
-        stack_pressure = 0.0
-        stratification = 0.0
 
-        unique_floors = sorted(list(floors.keys()))
-        self._attributes["floors_included"] = unique_floors
+        if t_eff is not None:
+            self._attributes["outdoor_temp"] = t_eff
+            self._attributes["outdoor_temp_source"] = "Effective Outdoor Temp"
+        elif t_out is not None:
+            self._attributes["outdoor_temp"] = t_out
+            self._attributes["outdoor_temp_source"] = "Standard Outdoor Temp"
+        t_out_candidate = t_eff or t_out
 
-        # If this aggregator purely represents ONE floor (e.g. "Main Floor Zone"),
-        # expose that ID so a parent aggregator can use it for stack calcs.
-        if len(unique_floors) == 1:
-            self._attributes["floor_level"] = unique_floors[0]
+        def calculate_spread(temp_list):
+            if not temp_list: return
+            min_t = min(temp_list, key=lambda x: x[0])
+            max_t = max(temp_list, key=lambda x: x[0])
+            spread = max_t[0] - min_t[0]
 
-        if len(unique_floors) >= 2:
-            min_floor = unique_floors[0]
-            max_floor = unique_floors[-1]
+            self._attributes["zone_temp_spread"] = round(spread, 2)
+            self._attributes["coldest_room"] = min_t[1]
+            self._attributes["hottest_room"] = max_t[1]
 
-            # Avg Temp at Bottom vs Top
-            t_bottom = sum(floors[min_floor]) / len(floors[min_floor])
-            t_top = sum(floors[max_floor]) / len(floors[max_floor])
+            if spread > 2.0:
+                self._attributes["balance_status"] = "Unbalanced (>2°C Spread)"
+            else:
+                self._attributes["balance_status"] = "Balanced"
 
-            stratification = t_top - t_bottom
+        # --- MODE A: HVAC ZONE (Balancing Stats) ---
+        if self._is_hvac_zone:
+            self._attributes["aggregator_mode"] = "HVAC Zone"
+            self._attributes.pop("stack_effect_pressure_pa", None)
+            self._attributes.pop("stratification_delta", None)
 
-            # Stack Height
-            height_diff = (max_floor - min_floor + 1) * self._ceiling_height
+            calculate_spread(temps_for_spread)
 
-            # Stack Pressure
-            t_out = t_out_candidate
-            if t_out is not None:
-                term_out = 1.0 / (t_out + 273.15)
-                term_in = 1.0 / (((t_top + t_bottom) / 2) + 273.15)
-                stack_pressure = 3465 * height_diff * (term_out - term_in)
+            # --- MODE B: VERTICAL STACK (Physics Stats) ---
+        else:
+            self._attributes["aggregator_mode"] = "Vertical Stack / Floor"
 
-            self._attributes["stratification_delta"] = round(stratification, 2)
-            self._attributes["stack_effect_pressure_pa"] = round(stack_pressure, 1)
-            self._attributes["stack_height_m"] = round(height_diff, 1)
+            unique_floors = sorted(list(floors.keys()))
+            self._attributes["floors_included"] = unique_floors
+
+            # Case 1: Single Floor Aggregator (Treat like a Zone for Spread)
+            if len(unique_floors) == 1:
+                self._attributes["floor_level"] = unique_floors[0]
+                # We clear stack stats but ADD spread stats
+                self._attributes.pop("stratification_delta", None)
+                self._attributes.pop("stack_effect_pressure_pa", None)
+                calculate_spread(temps_for_spread)
+
+            # Case 2: Multi-Floor Aggregator (Treat like a Stack)
+            elif len(unique_floors) >= 2:
+                # We clear spread stats (less relevant across floors) but ADD stack stats
+                self._attributes.pop("zone_temp_spread", None)
+                self._attributes.pop("balance_status", None)
+
+                min_floor = unique_floors[0]
+                max_floor = unique_floors[-1]
+                t_bottom = sum(floors[min_floor]) / len(floors[min_floor])
+                t_top = sum(floors[max_floor]) / len(floors[max_floor])
+
+                stratification = t_top - t_bottom
+                height_diff = (max_floor - min_floor + 1) * self._ceiling_height
+
+                stack_pressure = 0.0
+                if t_out_candidate is not None:
+                    term_out = 1.0 / (t_out_candidate + 273.15)
+                    term_in = 1.0 / (((t_top + t_bottom) / 2) + 273.15)
+                    stack_pressure = 3465 * height_diff * (term_out - term_in)
+
+                self._attributes["stratification_delta"] = round(stratification, 2)
+                self._attributes["stack_effect_pressure_pa"] = round(stack_pressure, 1)
+                self._attributes["stack_height_m"] = round(height_diff, 1)
+
+                # Imperial Calc
+                total_feet = height_diff * 3.28084
+                feet_part = int(total_feet)
+                inches_part = round((total_feet - feet_part) * 12)
+                if inches_part == 12:
+                    feet_part += 1
+                    inches_part = 0
+                self._attributes["stack_height_imperial"] = f"{feet_part}' {inches_part}\""
 
         self.async_write_ha_state()

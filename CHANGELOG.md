@@ -1,6 +1,14 @@
 # 0.2.3
+- add an aggregator 'mode'
+  - there will be 'floor' and 'hvac_zone' aggregators
+  - 'hvac_zone' mode will not do stratification calcs, instead it will focus on temp. spread and balancing within the zone
+  - 'floor' mode will do the stratification and stack effect calcs as before
+    - if all devices in the aggregator are on the same floor,temp spread will be exposed 
 - Add floor level logic to calculate stratification and stack effect pressure differences
-  - configure each room with its floor level (e.g. basement = 0, main floor = 1, second floor = 2, etc.)
+  - only exposed in the new 'aggregator' device as attributes to the Weighted Temperature entity 
+  - configure each room with its floor level (e.g. wine cellar = -2, basement = -1, main floor = 0, second floor = 1, etc.)
+  - add each room to an aggregator for the floor: aggregator named basement with all -1 floor level rooms, main floor with all 0 floor level rooms, etc.
+  - add each floor aggregator to a whole home aggregator (aggregators support nesting) OR add all rooms to a single aggregator and it will group the rooms by floor level automatically
   - calculate estimated temperature difference between floors based on stack effect equations
   - expose a new sensor showing estimated pressure difference between the room and outside due to stack effect in Pa
   - can be used to help with ventilation planning and understanding airflow patterns in multi-story homes

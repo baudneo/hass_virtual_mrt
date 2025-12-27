@@ -46,6 +46,7 @@ from .const import (
     CONF_PRECIPITATION_SENSOR,
     CONF_UV_INDEX_SENSOR,
     CONF_FLOOR_LEVEL,
+    CONF_IS_HVAC_ZONE,
 )
 
 
@@ -92,6 +93,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_NAME: user_input[CONF_NAME],
                 CONF_DEVICE_TYPE: TYPE_AGGREGATOR,
                 "source_devices": user_input["source_devices"],
+                CONF_IS_HVAC_ZONE: user_input[CONF_IS_HVAC_ZONE],
                 CONF_CEILING_HEIGHT: user_input[CONF_CEILING_HEIGHT],
             }
             return self.async_create_entry(title=user_input[CONF_NAME], data=data)
@@ -101,6 +103,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_NAME): str,
+                    vol.Required(CONF_IS_HVAC_ZONE, default=False): selector.BooleanSelector(),
                     vol.Required(
                         CONF_CEILING_HEIGHT, default=2.7
                     ): selector.NumberSelector(
@@ -361,10 +364,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ceiling_height = self.config_entry.data.get(
                 CONF_CEILING_HEIGHT, DEFAULT_CEILING_HEIGHT
             )
+            is_hvac = self.config_entry.data.get(CONF_IS_HVAC_ZONE, False)
             return self.async_show_form(
                 step_id="init",
                 data_schema=vol.Schema(
                     {
+                        vol.Required(CONF_IS_HVAC_ZONE, default=is_hvac): selector.BooleanSelector(),
                         vol.Required(
                             CONF_CEILING_HEIGHT, default=ceiling_height
                         ): selector.NumberSelector(

@@ -2,6 +2,8 @@
 
 [![HACS Badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=baudneo&repository=hass_virtual_mrt&category=integration)
+
 This integration brings professional building science concepts into Home Assistant. Instead of just looking at standard air temperature, this integration creates a **Virtual Room Device** that calculates how hot or cold a person *actually feels*.
 
 * **Standard Thermometers** measure Air Temperature ($T_{air}$). 🌡️

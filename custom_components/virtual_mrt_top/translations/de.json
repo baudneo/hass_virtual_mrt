@@ -2,10 +2,10 @@
   "config": {
     "step": {
       "user": {
-        "title": "Wähle den Konfigurationstype",
+        "title": "Wähle einen Konfigurationstype",
         "menu_options": {
           "room_setup": "virtuellen Raum erstellen (MRT/T_op)",
-          "aggregator_setup": "Erstelle einen Aggregator (Etage / ganzes Hause, Klimatisierungszone)"
+          "aggregator_setup": "Erstelle einen Aggregator (Etage / ganzes Hause, HLK-Zone)"
         }
       },
       "aggregator_setup": {
@@ -14,46 +14,46 @@
         "data": {
           "name": "Aggregator Name (Etage / ganzes Hause, Zone)",
           "source_devices": "Welche virtuellen Räume sollen im Aggregator enthalten sein?",
-          "is_hvac_zone": "Ist das eine HLK Zone? (Ermöglicht Balancing Stats, schaltet Stapel Effekt aus)",
+          "is_hvac_zone": "Ist das eine HLK Zone? (Ermöglicht State Balancing , schaltet Stapel Effekt aus)",
           "ceiling_height": "Durchschnittliche Deckenhöhe pro Etage (m)"
         }
       },
       "room_setup": {
         "title": "Richte einen Raum für Virtual MRT/T_op ein",
-        "description": "Gib die Details des RAumes zum Berechnen der mittleren Strahlungstemperatur und der operativen Temperatur ein.",
+        "description": "Gib die Details des Raumes ein für die Berechnung der mittleren Strahlungstemperatur und der operativen Temperatur.",
         "data": {
           "name": "Raumname",
-          "air_temp_source": "Raumlufttemperatursensor",
+          "air_temp_source": "Raumlufttemperatur",
           "weather_entity": "Wetterentität",
           "room_profil": "Raumprofil",
           "orientation": "Hauptausrichtung der Fenster",
           "room_area": "Bodenfläche des Raums (m²)",
           "floor_level": "Etage (-2=Höhle, -1=Keller, 0=Parterre, 1=Obergeschoß)",
-          "min_update_interval": "Minimales Updateinterval (Throttle)",
-          "is_radiant_heating": "Ist das ein Strahlungsheizsystem? (Boden/Heizkörper)"
+          "min_update_interval": "Minimales Updateinterval (Drosselung)",
+          "is_radiant_heating": "Ist das ein Strahlungsheizungssystem? (Boden/Heizkörper)"
         },
         "sections": {
           "sensors_section": {
             "name": "Optionale Umgebungssensoren",
-            "description": "Verbinde externe Sensoren für höhere Genauigkeit.",
+            "description": "Verknüpfe externe Sensoren für höhere Genauigkeit.",
             "data": {
-              "solar_sensor": "Globale Horizontaler[Solar] Strahlung (GHI)",
+              "solar_sensor": "Globale Horizontale [Solar] Strahlung (GHI)",
               "rh_sensor": "Relative Raumluftfeuchtigkeit",
-              "wall_surface_sensor": "Kalibrierungssensor: Innere Wandoberfläche Temp",
-              "calibration_rh_sensor": "Kalibrierungssensor: Innere Wandoberfläche Feuchte",
+              "wall_surface_sensor": "Kalibrierung: Wandoberfläche Temp",
+              "calibration_rh_sensor": "Kalibrierung: Wandoberfläche Feuchte",
               "outdoor_temp_sensor": "Außentemperatur",
               "outdoor_humidity_sensor": "Luftfeuchte außen",
               "wind_speed_sensor": "Windgeschwindigkeit",
               "precipitation_sensor": "Niederschlag / Regenrate",
               "uv_index_sensor": "UV Index",
-              "pressure_sensor": "Atmosphärischer Druck"
+              "pressure_sensor": "Luftdruck"
             }
           },
           "convection_section": {
             "name": "Luftbewegung & Konvektion",
-            "description": "Einstellungen, wie Luftbewegungen den Komfort beeinflussen.",
+            "description": "Einstellungen, die Luftbewegungen den Komfort beeinflussen.",
             "data": {
-              "climate_entity": "HLK Klima/Thermostat",
+              "climate_entity": "Klima/Thermostat",
               "fan_entity": "Lokaler Lüfter/Deckenlüfter",
               "window_state_sensor": "Fenstersensor",
               "door_state_sensor": "Türsensor",
@@ -67,12 +67,12 @@
             }
           },
           "geometry_section": {
-            "name": "Wand- & Fenstergeometrie (Erweiterter Wärmeverlust)",
+            "name": "Wand- & Fenstergeometrie (Erweitert - Wärmeverlust)",
             "description": "Exakte Dimensionen für akkurate Berechnung des Wärmeverlusts (Watt). Wenn leer gelassen, wird die Bodenfläche benutzt.",
             "data": {
-              "exterior_wall_area": "Außenwandfläche (m²) - einschließlich Fenster",
+              "exterior_wall_area": "Außenwandfläche (m²) inklusive Fenster",
               "window_area": "Gesamte Fenster/Glasfläche (m²)",
-              "window_u_value": "U-Wert der Fenster (W/m²K) - Vorgabe 2.0 (2 Scheiben)"
+              "window_u_value": "U-Wert der Fenster (W/m²K) - Default 2.0 (2 Scheiben)"
             }
           }
         }
@@ -90,23 +90,23 @@
             "orientation": "Hauptausrichtung der Fenster",
             "room_area": "Bodenfläche des Raums (m²)",
             "min_update_interval": "Minimales Updateinterval (Drosselung)",
-            "is_radiant_heating": "Ist das ein Strahlungsheizsystem? (Boden/Heizkörper)",
+            "is_radiant_heating": "Ist das ein Strahlungsheizungssystem? (Boden/Heizkörper)",
             "source_devices": "Welche virtuellen Räume sollen in diesem Aggregator enthalten sein?",
             "ceiling_height": "Durchschnittliche Deckenhöhe der Etage (m)",
-            "is_hvac_zone": "Ist das eine HLK-Zone? (Ermöglicht Balancing Stats, schaltet Stapel Effekt aus)",
-            "floor_level": "Etage (-2=Höhle, -1=Keller, 0=Parterre, 1=Obergeschoß)"
+            "is_hvac_zone": "Ist das eine HLK-Zone? (Ermöglicht State Balancing, schaltet Stapeleffekt aus)",
+            "floor_level": "Etage (-2 = Höhle, -1 = Keller, 0 = Parterre, 1 = Obergeschoß)"
           },
           "sections": {
             "Sensoren_section": {
               "name": "Optionale Umgebungssensoren",
-              "description": "Verbinde externe Sensoren für höhere Genauigkeit.",
+              "description": "Externe Sensoren für höhere Genauigkeit.",
               "data": {
-                "solar_sensor": "Globale Horizontaler[Solar] Strahlung (GHI)",
+                "solar_sensor": "Globale Horizontale[Solar] Strahlung (GHI)",
                 "rh_sensor": "Relative Raumluftfeuchtigkeit",
-                "wall_surface_sensor": "Kalibrierungssensor: Innere Wandoberfläche Temp",
-                "calibration_rh_sensor": "Kalibrierungssensor: Innere Wandoberfläche Feuchte",
+                "wall_surface_sensor": "Kalibrierung: Innere Wandoberfläche Temp",
+                "calibration_rh_sensor": "Kalibrierung: Innere Wandoberfläche Feuchte",
                 "outdoor_temp_sensor": "Außentemperatur",
-                "outdoor_humidity_sensor": "Luftfeuchte außen",
+                "outdoor_humidity_sensor": "Außenluftfeuchte",
                 "wind_speed_sensor": "Windgeschwindigkeit",
                 "precipitation_sensor": "Niederschlag / Regenrate",
                 "uv_index_sensor": "UV Index",
@@ -131,19 +131,13 @@
               }
             },
             "geometry_section": {
-              "name": "Wand- & Fenstergeometrie (Erweiterter Wärmeverlust)",
+              "name": "Wand- & Fenstergeometrie (Erweitert - Wärmeverlust)",
               "description": "Exakte Dimensionen für akkurate Berechnung des Wärmeverlusts (Watt). Wenn leer gelassen, wird die Bodenfläche benutzt.",
               "data": {
-                "exterior_wall_area": "Außenwandfläche (m²) - einschließlich Fenster",
+                "exterior_wall_area": "Außenwandfläche (m²) inklusive Fenster",
                 "window_area": "Gesamte Fenster/Glasfläche (m²)",
-                "window_u_value": "U-Wert der Fenster (W/m²K) - Vorgabe 2.0 (2 Scheiben)"
+                "window_u_value": "U-Wert der Fenster (W/m²K)"
               },
-                
-              "data": {
-                "exterior_wall_area": "Gross Exterior Wand Area (m²)",
-                "window_area": "Total Fenster/Glass Area (m²)",
-                "window_u_value": "Fenster U-Value (W/m²K)"
-              }
             }
           }
         }
@@ -180,15 +174,15 @@
       "dew_point": { "name": "Taupunkt" },
       "frost_point": { "name": "Frostpunkt" },
       "absolute_humidity": { "name": "Absolute Feuchte" },
-      "enthalpy": { "name": "Luftenthalpie" },
+      "enthalpy": { "name": "Enthalpie" },
       "humidex": { "name": "Humidex" },
       "perception": { "name": "Thermalwahrnehmung" },
       "mold_risk": { "name": "Schimmelrisiko (kritische Oberfläche)" },
       "calibration_k": { "name": "Geschätzter Isolationsfaktor" },
-      "heat_flux": { "name": "Wärmestromdichte Wand" },
+      "heat_flux": { "name": "Wand Wärmestromdichte" },
       "pmv": { "name": "Thermalkomfort (PMV)" },
       "zone_temperature": {
-        "name": "Zonentemperature"
+        "name": "Zonentemperatur"
       },
       "moisture_excess": {
         "name": "Feuchtigkeitsüberschuß",
@@ -205,7 +199,7 @@
         "name": "Anteil Fenster"
       },
       "insulation_loss_factor": {
-        "name": "Isolationsverlustfactor"
+        "name": "Isolationsverlustfaktor"
       },
       "solar_gain_factor": {
         "name": "Solargewinnfaktor"
@@ -214,8 +208,8 @@
         "name": "Thermaler Glättungsfaktor"
       },
       "radiant_surface_temp": {
-        "name": "Strahlungsoberfläche Zieltemperatur",
-        "description": "Zieltemperature der abstrahlenden Fläche (z.B., Boden- oder Heizkörpertemperatur) beim Heizen."
+        "name": "Zieltemperatur Strahlungsoberfläche",
+        "description": "Zieltemperature der abstrahlenden Fläche (z.B. Boden- oder Heizkörpertemperatur) beim Heizen."
       },
       "hvac_air_speed": {
         "name": "HLK Luftgeschwindigkeit"

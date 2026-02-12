@@ -61,3 +61,43 @@ Enthalpy ($kJ/kg$) measures the **Total Heat Energy** stored in the air, combini
 * **Inputs Needed:** $T_{air}$, $T_{mrt}$, $v_{air}$, $RH$.
 * **Personal Inputs:** Configured via numeric sliders for Clothing Level ($clo$) and Metabolic Rate ($met$).
 * **Output:** A numeric PMV value and a text category ("Comfortable", "Slightly Cool", "Hot").
+
+### 👔 Deep Dive: PMV Personal Inputs
+
+The **Predicted Mean Vote (PMV)** calculation is unique because it requires information about the *person* inside the room, not just the room itself. A room at 20°C feels very different if you are doing jumping jacks in a parka versus sleeping in a t-shirt.
+
+To get an accurate comfort score, you should tune the following two sliders to match the typical usage of the room.
+
+#### 1. Clothing Insulation (`clo`)
+This measures the thermal resistance of the clothing worn by the occupant.
+* **Range:** `0.0` (Naked) to `3.0` (Polar Gear)
+* **Default:** `0.6` (Light home clothing)
+
+| Value (`clo`) | Typical Attire                                                       |
+|:--------------|:---------------------------------------------------------------------|
+| **0.0**       | Naked (Shower/Bath)                                                  |
+| **0.5**       | **Summer:** T-shirt and shorts.                                      |
+| **0.6**       | **Default:** Light sweater, long sleeve shirt, light trousers.       |
+| **1.0**       | **Winter:** Heavy sweater, thick trousers (or a full business suit). |
+| **1.5**       | Heavy indoor layers or light outdoor coat.                           |
+
+#### 2. Metabolic Rate (`met`)
+This measures how much heat the human body is generating internally.
+* **Range:** `0.8` (Sleeping) to `4.0` (Heavy Exercise)
+* **Default:** `1.1` (Typing / Light Activity)
+
+| Value (`met`) | Activity Level                                                |
+|:--------------|:--------------------------------------------------------------|
+| **0.8**       | **Sleeping** or reclining fully relaxed.                      |
+| **1.0**       | **Sedentary:** Seated, watching TV, reading.                  |
+| **1.1**       | **Light Activity:** Typing, office work, playing video games. |
+| **1.5**       | **Standing:** Cooking, washing dishes, light housework.       |
+| **2.0 - 3.0** | **Active:** Cleaning, vacuuming, slow walking.                |
+| **3.0 - 4.0** | **Exercise:** Calisthenics, gym activity.                     |
+
+>[!TIP]
+> **💡 Automation Idea:**
+> You can automate these sliders!
+> * If your house enters `Sleep Mode`, automate the `number.bedroom_metabolism` to **0.8**.
+> * If your calendar says "Work from Home", set `number.office_clothing` to **0.6**.
+> * If you have a Home Gym, set the `met` to **3.5** to ensure the fan turns on sooner to cool you down!

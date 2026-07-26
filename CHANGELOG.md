@@ -1,10 +1,13 @@
-# 0.2.3 - Geometry and Windows
+# 0.2.4
 - Add new **advanced** inputs to calculate realistic **aggregator** heat loss and enhance **room** mold risk by estimating window surface temperature.
   - current calc uses floor area as the exterior wall area and assumes the whole wall has no windows  
   - new inputs:
     - gross room exterior wall area (walls and windows)
     - window area (window area)
     - window U-value (default 2.0; double pane)
+  - add logic for cooling (WIP)
+    - in the 'convection' settings, you can now specify multiple additional heater/cooling units by their climate entity
+    - when running the stacked effects will be calculated, unavailable/off entities do not affect anything, so you can keep your heaters assigned in the summer and they wont skew the value.
 # 0.2.3
 - add an aggregator 'mode'
   - there will be 'floor' and 'hvac_zone' aggregators

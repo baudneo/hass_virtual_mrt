@@ -2520,7 +2520,18 @@ class VirtualMRTSensor(SensorEntity):
         self.entity_air = self._config[CONF_AIR_TEMP_SOURCE]
         self.entity_weather = self._config[CONF_WEATHER_ENTITY]
         self.entity_solar = self._config.get(CONF_SOLAR_SENSOR)
+
+
         self.entity_climate = self._config.get(CONF_CLIMATE_ENTITY)
+        raw_climate = self._config.get(CONF_CLIMATE_ENTITY)
+        if isinstance(raw_climate, str):
+            self.entities_climate = [raw_climate]
+        elif isinstance(raw_climate, list):
+            self.entities_climate = raw_climate
+        else:
+            self.entities_climate = []
+
+
         self.entity_fan = self._config.get(CONF_FAN_ENTITY)
         self.entity_window = self._config.get(CONF_WINDOW_STATE_SENSOR)
         self.entity_door = self._config.get(CONF_DOOR_STATE_SENSOR)
@@ -2611,8 +2622,9 @@ class VirtualMRTSensor(SensorEntity):
             entities_to_track.append(self.entity_wall_sensor)
         if self.entity_solar:
             entities_to_track.append(self.entity_solar)
-        if self.entity_climate:
-            entities_to_track.append(self.entity_climate)
+        for climate_id in self.entities_climate:
+            if climate_id:
+                entities_to_track.append(climate_id)
         if self.entity_fan:
             entities_to_track.append(self.entity_fan)
         if self.entity_window:
@@ -2788,7 +2800,7 @@ class VirtualMRTSensor(SensorEntity):
 
         return 1.0
 
-    def _calculate_v_air(self) -> float:
+    def _calculate_v_airOLD(self) -> float:
         """Determines the effective air velocity (m/s) based on priority logic."""
         # Note: This function assumes IDs are valid or None.
 
@@ -2831,6 +2843,97 @@ class VirtualMRTSensor(SensorEntity):
                     potential_speeds.append(hvac_speed_setting)
 
         # --- Check Local Fan Entity ---
+        if fan_state and fan_state.state not in ["off", "unavailable", "unknown", None]:
+            fan_speed_key = str(fan_state.state).lower()
+            fan_speed = FAN_SPEED_MAP.get(fan_speed_key, hvac_speed_setting)
+            potential_speeds.append(fan_speed)
+
+        return max(potential_speeds)
+
+    def _get_aggregate_climate_state(self) -> dict:
+        """
+        Evaluates stacked climate entities.
+        Returns aggregated active states across all units (Central + Portable).
+        """
+        aggregated = {
+            "hvac_action": "idle",
+            "is_active": False,
+            "is_cooling": False,
+            "is_heating": False,
+            "is_fan_active": False,
+        }
+
+        if not self.entities_climate:
+            return aggregated
+
+        actions = []
+
+        for entity_id in self.entities_climate:
+            state_obj = self.hass.states.get(entity_id)
+            if not state_obj or state_obj.state in ["unavailable", "unknown"]:
+                continue
+
+            attrs = state_obj.attributes
+            action = attrs.get("hvac_action", "idle")
+            fan_mode = attrs.get("fan_mode")
+
+            actions.append(action)
+
+            if action == "cooling":
+                aggregated["is_cooling"] = True
+                aggregated["is_active"] = True
+            elif action == "heating":
+                aggregated["is_heating"] = True
+                aggregated["is_active"] = True
+
+            if fan_mode in ["on", "high", "medium", "low"] or action == "fan":
+                aggregated["is_fan_active"] = True
+
+        # Assign single dominant action state for attributes display
+        if aggregated["is_cooling"]:
+            aggregated["hvac_action"] = "cooling"
+        elif aggregated["is_heating"]:
+            aggregated["hvac_action"] = "heating"
+        elif aggregated["is_fan_active"]:
+            aggregated["hvac_action"] = "fan"
+        elif any(a == "idle" for a in actions):
+            aggregated["hvac_action"] = "idle"
+        else:
+            aggregated["hvac_action"] = "off"
+
+        return aggregated
+
+    def _calculate_v_air(self) -> float:
+        """Determines effective air velocity (m/s) checking all stacked HVAC units."""
+        window_state = (
+            self.hass.states.get(self.entity_window) if self.entity_window else None
+        )
+        door_state = (
+            self.hass.states.get(self.entity_door) if self.entity_door else None
+        )
+        fan_state = self.hass.states.get(self.entity_fan) if self.entity_fan else None
+
+        potential_speeds = [DEFAULT_AIR_SPEED_STILL]
+
+        # --- Manual Override ---
+        manual_speed = self._get_float(self.id_manual_speed, 0.0)
+        if manual_speed > 0:
+            potential_speeds.append(manual_speed)
+
+        # --- Natural Ventilation ---
+        if window_state and window_state.state.lower() == "on":
+            potential_speeds.append(DEFAULT_AIR_SPEED_WINDOW)
+        if door_state and door_state.state.lower() == "on":
+            potential_speeds.append(DEFAULT_AIR_SPEED_DOOR)
+
+        # --- Stacked Climate Checking ---
+        hvac_speed_setting = self._get_float(self.id_hvac_speed, DEFAULT_AIR_SPEED_HVAC)
+        climate_info = self._get_aggregate_climate_state()
+
+        if climate_info["is_active"] or climate_info["is_fan_active"]:
+            potential_speeds.append(hvac_speed_setting)
+
+        # --- Local Ceiling/Desk Fan ---
         if fan_state and fan_state.state not in ["off", "unavailable", "unknown", None]:
             fan_speed_key = str(fan_state.state).lower()
             fan_speed = FAN_SPEED_MAP.get(fan_speed_key, hvac_speed_setting)
@@ -3018,20 +3121,28 @@ class VirtualMRTSensor(SensorEntity):
         t_out_source = "calculated_local_aat"
 
         if t_app is None:
-            # Fallback to weather entity attribute
             t_app = self._get_attr(self.entity_weather, "apparent_temperature")
             t_out_source = "weather_entity_attr"
 
-        # Use the lower of the two (Conservative for heating: Wind Chill matters)
-        # If T_app is missing, just use T_out
-        if t_app is not None and t_app < t_out:
-            t_out_eff = t_app
+        if t_app is not None:
+            # In winter (t_out < t_air), wind chill dominates (use lower t_app)
+            # In summer (t_out > t_air), heat index dominates (use higher t_app)
+            if t_out < t_air:
+                t_out_eff = min(t_out, t_app)
+            else:
+                t_out_eff = max(t_out, t_app)
         else:
             t_out_eff = t_out
             t_out_source = "dry_bulb_clamped"
 
         self._attributes["t_out_eff"] = round(t_out_eff, 2)
         self._attributes["t_out_eff_source"] = t_out_source
+
+        # --- Climate Status Attributes ---
+        climate_info = self._get_aggregate_climate_state()
+        self._attributes["hvac_action"] = climate_info["hvac_action"]
+        self._attributes["is_cooling"] = climate_info["is_cooling"]
+        self._attributes["is_heating"] = climate_info["is_heating"]
 
         # --- Dynamic Factors (Inputs) ---
         config_profile_key = self._config[CONF_ROOM_PROFILE]
@@ -3131,12 +3242,10 @@ class VirtualMRTSensor(SensorEntity):
         shading_factor = self._get_shading_factor()
         self._attributes["shading_factor"] = round(shading_factor, 2)
 
-        # --- CALCULATE RADIANT BOOST ---
+        # --- CALCULATE RADIANT BOOST / COOLING ---
         new_boost = 0.0
         if self.is_radiant:
             surface_setpoint = self._get_float(self.id_radiant_temp, 24.0)
-
-            # Get type safely
             type_key = "high_mass"
             if self.id_radiant_type:
                 type_state = self.hass.states.get(self.id_radiant_type)
@@ -3151,12 +3260,16 @@ class VirtualMRTSensor(SensorEntity):
                 self.hass.states.get(self.entity_climate) if self.entity_climate else None
             )
             target_boost = 0.0
-            if (
-                    climate_state
-                    and climate_state.attributes.get("hvac_action") == "heating"
-            ):
-                delta_t = surface_setpoint - t_air
-                target_boost = delta_t * view_factor
+
+            if climate_state:
+                hvac_action = climate_state.attributes.get("hvac_action")
+                if hvac_action == "heating":
+                    delta_t = surface_setpoint - t_air
+                    target_boost = delta_t * view_factor
+                elif hvac_action == "cooling":
+                    # For radiant cooling (chilled slab/ceiling), boost is negative
+                    delta_t = surface_setpoint - t_air
+                    target_boost = delta_t * view_factor
 
             new_boost = ((1.0 - boost_alpha) * self._radiant_boost_stored) + (
                     boost_alpha * target_boost
@@ -3193,9 +3306,22 @@ class VirtualMRTSensor(SensorEntity):
             t_wall_est = t_air - ((t_air - t_out_eff) * k_loss)
             self._attributes["estimated_wall_surface_temp"] = round(t_wall_est, 1)
 
-        # --- Clamping ---
-        lower_dyn = max(t_out_eff + 2.0, t_air - 3.0)
-        upper_dyn = t_air + 4.0
+        # --- Dynamic Clamping Logic (Heating & Cooling Aware) ---
+        if t_air >= t_out_eff:
+            # HEATING SEASON: Envelope heat loss pulls MRT below air temp
+            # Allow MRT to drop down to t_out_eff (clamped to a realistic -5.0°C below t_air)
+            lower_dyn = max(t_out_eff, t_air - 5.0)
+            upper_dyn = t_air + 4.0  # Allow upper bound for direct solar gain
+        else:
+            # COOLING SEASON: Outdoor heat gain pushes MRT above indoor air temp
+            # Lower bound stays near indoor air temp, upper bound tracks outdoor heat + solar
+            lower_dyn = t_air - 2.0
+            upper_dyn = min(t_out_eff + 3.0, t_air + 6.0)
+
+        # Safeguard: ensure lower_dyn <= upper_dyn before clamping
+        if lower_dyn > upper_dyn:
+            lower_dyn, upper_dyn = upper_dyn, lower_dyn
+
         mrt_clamped = max(lower_dyn, min(mrt_calc, upper_dyn))
         self._attributes["mrt_clamped"] = round(mrt_clamped, 2)
 

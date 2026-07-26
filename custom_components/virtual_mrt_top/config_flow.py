@@ -308,7 +308,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     CONF_CLIMATE_ENTITY
                                 ): selector.EntitySelector(
                                     selector.EntitySelectorConfig(
-                                        domain=Platform.CLIMATE
+                                        domain=Platform.CLIMATE,
+                                        multiple=True
                                     )
                                 ),
                                 vol.Optional(CONF_FAN_ENTITY): selector.EntitySelector(
@@ -649,7 +650,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         vol.Optional(
                             "climate_entity", description={"suggested_value": climate}
                         ): selector.EntitySelector(
-                            selector.EntitySelectorConfig(domain=Platform.CLIMATE)
+                            selector.EntitySelectorConfig(
+                                domain=Platform.CLIMATE,
+                                multiple=True
+                            ),
                         ),
                         vol.Optional(
                             "fan_entity", description={"suggested_value": fan}

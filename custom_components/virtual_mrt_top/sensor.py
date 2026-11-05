@@ -10,10 +10,9 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
     SensorStateClass,
-    EntityCategory,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature, CONF_NAME
+from homeassistant.const import UnitOfTemperature, CONF_NAME, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback

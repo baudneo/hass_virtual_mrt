@@ -19,6 +19,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event, async_call_later
 
 from .psychrometrics import Psychrometrics
+from .units import (
+    state_pressure_hpa,
+    state_speed_ms,
+    state_temp_c,
+    weather_pressure_hpa,
+    weather_speed_ms,
+    weather_temp_c,
+)
 from .const import (
     DOMAIN,
     CONF_AIR_TEMP_SOURCE,
@@ -71,6 +79,7 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
 
 
 async def async_setup_entry(
@@ -205,7 +214,9 @@ class VirtualOperativeTempSensor(SensorEntity):
             and air_state.state not in ["unknown", "unavailable"]
         ):
             try:
-                air = float(air_state.state)
+                air = state_temp_c(air_state)
+                if air is None:
+                    raise ValueError
 
                 # --- NEW DYNAMIC T_op CALCULATION ---
                 v_air = self._attributes.get(
@@ -292,19 +303,18 @@ class VirtualPsychroBase(SensorEntity):
         if self.entity_pressure:
             state = self.hass.states.get(self.entity_pressure)
             if state and state.state not in ["unknown", "unavailable"]:
-                try:
-                    # Return immediately - assume local sensor reads actual local pressure
-                    return float(state.state)
-                except ValueError:
-                    pass
+                # Return immediately - assume local sensor reads actual local pressure
+                local_pressure = state_pressure_hpa(state)
+                if local_pressure is not None:
+                    return local_pressure
 
         # 2. Weather Entity (Assume Sea Level)
         if self.entity_weather:
             state = self.hass.states.get(self.entity_weather)
             if state:
-                pres = state.attributes.get("pressure")
+                pres = weather_pressure_hpa(state)
                 if pres is not None:
-                    pressure_val = float(pres)
+                    pressure_val = pres
                     is_sea_level = True  # Mark for correction
 
         # 3. Default Fallback
@@ -341,7 +351,9 @@ class VirtualPsychroBase(SensorEntity):
             return
 
         try:
-            t = float(t_state.state)
+            t = state_temp_c(t_state)
+            if t is None:
+                raise ValueError
             rh = float(rh_state.state)
             pressure = self._get_pressure()
 
@@ -494,7 +506,7 @@ class VirtualEnthalpySensor(VirtualPsychroBase):
             if w_state:
                 # Only overwrite if we didn't find the specific sensor value
                 if t_out is None:
-                    t_out = w_state.attributes.get("temperature")
+                    t_out = weather_temp_c(w_state)
                 if rh_out is None:
                     rh_out = w_state.attributes.get("humidity")
                 source_type = "weather_entity"
@@ -675,7 +687,7 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
         if t_out is None:
             w_state = self.hass.states.get(self.entity_weather)
             if w_state:
-                t_out = w_state.attributes.get("temperature")
+                t_out = weather_temp_c(w_state)
 
         # Fallback to indoor temp (implies Delta T = 0)
         if t_out is None:
@@ -831,7 +843,9 @@ class VirtualCalibrationSensor(SensorEntity):
             # Get Outdoor Temp (Prefer raw temp for calibration as wind chill
             # effects are complex, but using T_out allows pure U-value estimation)
             w_state = self.hass.states.get(self.entity_weather)
-            t_out = float(w_state.attributes.get("temperature"))
+            t_out = weather_temp_c(w_state)
+            if t_out is None:
+                raise ValueError
 
             if t_air is None or t_wall is None: raise ValueError
         except (ValueError, AttributeError, TypeError):
@@ -1028,7 +1042,7 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
         if t_out is None:
             w_state = self.hass.states.get(self.entity_weather)
             if w_state:
-                t_out = w_state.attributes.get("temperature")
+                t_out = weather_temp_c(w_state)
         if t_out is None:
             t_out = t_air - 10
 
@@ -1301,7 +1315,7 @@ class VirtualMoistureExcessSensor(VirtualPsychroBase):
             w_state = self.hass.states.get(self.entity_weather)
             if w_state:
                 if t_out is None:
-                    t_out = w_state.attributes.get("temperature")
+                    t_out = weather_temp_c(w_state)
                 if rh_out is None:
                     rh_out = w_state.attributes.get("humidity")
 
@@ -2193,15 +2207,20 @@ class VirtualMRTSensor(SensorEntity):
         self._attributes["orientation"] = self._config[CONF_ORIENTATION]
 
         # --- T_air (Input) ---
-        t_air = self._get_float(self.entity_air, None)
+        t_air = state_temp_c(self.hass.states.get(self.entity_air))
         if t_air is None:
             return
         self._attributes["t_air"] = t_air
 
         # --- T_out (Input) ---
-        t_out = self._get_float(self.entity_outdoor_temp, None)
+        weather_state_obj = self.hass.states.get(self.entity_weather)
+        t_out = (
+            state_temp_c(self.hass.states.get(self.entity_outdoor_temp))
+            if self.entity_outdoor_temp
+            else None
+        )
         if t_out is None:
-            t_out = self._get_attr(self.entity_weather, "temperature")
+            t_out = weather_temp_c(weather_state_obj)
         if t_out is None:
             # If we have absolutely no data, we can't run the physics model safely.
             return
@@ -2227,7 +2246,7 @@ class VirtualMRTSensor(SensorEntity):
         t_out_source = "calculated_local_aat"
 
         if t_app is None:
-            t_app = self._get_attr(self.entity_weather, "apparent_temperature")
+            t_app = weather_temp_c(weather_state_obj, "apparent_temperature")
             t_out_source = "weather_entity_attr"
 
         if t_app is not None:

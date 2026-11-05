@@ -1683,6 +1683,7 @@ class VirtualMRTSensor(SensorEntity):
 
         self._attr_native_value = None
         self._mrt_prev = None
+        self._last_smooth_ts = None
         self._attributes = {}
         self._last_update_time = 0.0
         self._min_update_interval = 60.0  # Seconds
@@ -2462,7 +2463,14 @@ class VirtualMRTSensor(SensorEntity):
         if self._mrt_prev is None:
             self._mrt_prev = mrt_clamped
 
-        mrt_final = ((1.0 - alpha) * self._mrt_prev) + (alpha * mrt_clamped)
+        now = time.monotonic()
+        dt = None if self._last_smooth_ts is None else now - self._last_smooth_ts
+        self._last_smooth_ts = now
+        ref = self._min_update_interval if self._min_update_interval > 0 else 30.0
+        alpha_eff = smoothing_alpha(alpha, dt, ref)
+        self._attributes["thermal_alpha_effective"] = round(alpha_eff, 3)
+
+        mrt_final = ((1.0 - alpha_eff) * self._mrt_prev) + (alpha_eff * mrt_clamped)
         self._mrt_prev = mrt_final
 
         # --- Final Value ---

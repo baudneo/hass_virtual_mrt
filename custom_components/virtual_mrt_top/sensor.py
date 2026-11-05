@@ -1911,55 +1911,40 @@ class VirtualMRTSensor(SensorEntity):
 
         return 1.0
 
-    def _calculate_v_airOLD(self) -> float:
-        """Determines the effective air velocity (m/s) based on priority logic."""
-        # Note: This function assumes IDs are valid or None.
+    @staticmethod
+    def _infer_hvac_action(state_obj) -> str:
+        """Infer hvac_action for climates that don't report it (mode vs. setpoint)."""
+        mode = state_obj.state
+        if mode == "off":
+            return "off"
+        if mode == "fan_only":
+            return "fan"
 
-        # Read new entity states
-        climate_state = (
-            self.hass.states.get(self.entity_climate) if self.entity_climate else None
-        )
-        window_state = (
-            self.hass.states.get(self.entity_window) if self.entity_window else None
-        )
-        door_state = (
-            self.hass.states.get(self.entity_door) if self.entity_door else None
-        )
-        fan_state = self.hass.states.get(self.entity_fan) if self.entity_fan else None
+        attrs = state_obj.attributes
+        try:
+            current = float(attrs.get("current_temperature"))
+        except (TypeError, ValueError):
+            return "idle"
 
-        # Start with default still air speed
-        potential_speeds = [DEFAULT_AIR_SPEED_STILL]
+        def _num(key):
+            try:
+                return float(attrs.get(key))
+            except (TypeError, ValueError):
+                return None
 
-        # --- Check Manual Override ---
-        manual_speed = self._get_float(self.id_manual_speed, 0.0)
-        if manual_speed > 0:
-            potential_speeds.append(manual_speed)
+        target = _num("temperature")
+        low = _num("target_temp_low")
+        high = _num("target_temp_high")
 
-        # --- Check Natural Ventilation ---
-        if window_state and window_state.state.lower() == "on":
-            potential_speeds.append(DEFAULT_AIR_SPEED_WINDOW)
-
-        if door_state and door_state.state.lower() == "on":
-            potential_speeds.append(DEFAULT_AIR_SPEED_DOOR)
-
-        # --- Check HVAC (Forced Air) ---
-        hvac_speed_setting = self._get_float(self.id_hvac_speed, DEFAULT_AIR_SPEED_HVAC)
-        if not self.is_radiant:
-            if climate_state:
-                attrs = climate_state.attributes
-                is_active = attrs.get("hvac_action") not in ["off", "idle", None]
-                is_fan_forced = attrs.get("fan_mode") == "on"
-
-                if is_active or is_fan_forced:
-                    potential_speeds.append(hvac_speed_setting)
-
-        # --- Check Local Fan Entity ---
-        if fan_state and fan_state.state not in ["off", "unavailable", "unknown", None]:
-            fan_speed_key = str(fan_state.state).lower()
-            fan_speed = FAN_SPEED_MAP.get(fan_speed_key, hvac_speed_setting)
-            potential_speeds.append(fan_speed)
-
-        return max(potential_speeds)
+        if mode in ("heat", "heat_cool", "auto"):
+            heat_sp = low if low is not None else target
+            if heat_sp is not None and current < heat_sp - 0.3:
+                return "heating"
+        if mode in ("cool", "heat_cool", "auto"):
+            cool_sp = high if high is not None else target
+            if cool_sp is not None and current > cool_sp + 0.3:
+                return "cooling"
+        return "idle"
 
     def _get_aggregate_climate_state(self) -> dict:
         """
@@ -1985,7 +1970,9 @@ class VirtualMRTSensor(SensorEntity):
                 continue
 
             attrs = state_obj.attributes
-            action = attrs.get("hvac_action", "idle")
+            action = attrs.get("hvac_action")
+            if action is None:
+                action = self._infer_hvac_action(state_obj)
             fan_mode = attrs.get("fan_mode")
 
             actions.append(action)
@@ -1997,7 +1984,10 @@ class VirtualMRTSensor(SensorEntity):
                 aggregated["is_heating"] = True
                 aggregated["is_active"] = True
 
-            if fan_mode in ["on", "high", "medium", "low"] or action == "fan":
+            # A unit that is switched off keeps reporting its last fan_mode; ignore it.
+            if state_obj.state != "off" and (
+                fan_mode in ["on", "high", "medium", "low"] or action == "fan"
+            ):
                 aggregated["is_fan_active"] = True
 
         # Assign single dominant action state for attributes display

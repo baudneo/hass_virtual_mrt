@@ -2209,6 +2209,7 @@ class VirtualMRTSensor(SensorEntity):
         # --- T_air (Input) ---
         t_air = state_temp_c(self.hass.states.get(self.entity_air))
         if t_air is None:
+            self._attr_native_value = None
             return
         self._attributes["t_air"] = t_air
 
@@ -2223,6 +2224,7 @@ class VirtualMRTSensor(SensorEntity):
             t_out = weather_temp_c(weather_state_obj)
         if t_out is None:
             # If we have absolutely no data, we can't run the physics model safely.
+            self._attr_native_value = None
             return
 
         # --- Wind (Input) --- each source is converted using its own unit

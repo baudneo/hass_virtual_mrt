@@ -1,3 +1,21 @@
+# Unreleased
+- **Fixes**
+  - radiant rooms with a climate entity no longer crash the MRT calc (multiple climate entities supported); radiant systems no longer get forced-air velocity
+  - a climate that is `off` no longer counts its leftover `fan_mode`; climates without `hvac_action` are inferred from mode vs. setpoint
+  - dedicated wind sensors are no longer divided by 3.6 because the *weather entity* reports km/h; each source uses its own unit
+  - frost point was below the dew point; now uses Magnus over ice
+  - mold risk no longer sticks on "measured" after the surface RH sensor drops out
+- **Units**: temperatures, wind, and pressure are converted to °C / m/s / hPa from their reported units (°F, mph, kn, inHg, ...)
+- **Year-round model**
+  - summer envelope temperature uses dry-bulb + a sol-air increment instead of the "feels like" temperature
+  - solar incidence now accounts for sun elevation (high summer sun gives far less gain than low winter sun; winter behavior unchanged)
+  - thermal smoothing (`thermal_alpha`) is time-aware; identical at the configured update interval
+  - operative temperature uses ISO 7726 MRT weights (0.5 / 0.4 / 0.3)
+  - heat flux / watts are signed (negative = heat gain); R-value only estimated with a measured wall sensor
+  - MRT/T_op go `unknown` when air or outdoor temperature is unavailable instead of holding a stale value
+  - PMV exposes `iso7730_valid`
+- Operative temp no longer records ~35 duplicated attributes to the database; `iot_class` is now `calculated`
+- Developer: options flow has a *Reload integration code* hot-reload; removed ~700 lines of dead code; pure math moved to `psychrometrics.py`, `thermal.py`, `units.py`; added `tests/`
 # 0.2.4
 - Add new **advanced** inputs to calculate realistic **aggregator** heat loss and enhance **room** mold risk by estimating window surface temperature.
   - current calc uses floor area as the exterior wall area and assumes the whole wall has no windows  

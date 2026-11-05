@@ -1634,7 +1634,6 @@ class VirtualMRTSensor(SensorEntity):
         self.entity_solar = self._config.get(CONF_SOLAR_SENSOR)
 
 
-        self.entity_climate = self._config.get(CONF_CLIMATE_ENTITY)
         raw_climate = self._config.get(CONF_CLIMATE_ENTITY)
         if isinstance(raw_climate, str):
             self.entities_climate = [raw_climate]
@@ -2368,20 +2367,13 @@ class VirtualMRTSensor(SensorEntity):
             boost_alpha = system_props["alpha"]
             view_factor = system_props["view_factor"]
 
-            climate_state = (
-                self.hass.states.get(self.entity_climate) if self.entity_climate else None
-            )
             target_boost = 0.0
 
-            if climate_state:
-                hvac_action = climate_state.attributes.get("hvac_action")
-                if hvac_action == "heating":
-                    delta_t = surface_setpoint - t_air
-                    target_boost = delta_t * view_factor
-                elif hvac_action == "cooling":
-                    # For radiant cooling (chilled slab/ceiling), boost is negative
-                    delta_t = surface_setpoint - t_air
-                    target_boost = delta_t * view_factor
+            # Heating and cooling both drive the surface toward its setpoint
+            # (negative boost for a chilled slab/ceiling).
+            if climate_info["is_heating"] or climate_info["is_cooling"]:
+                delta_t = surface_setpoint - t_air
+                target_boost = delta_t * view_factor
 
             new_boost = ((1.0 - boost_alpha) * self._radiant_boost_stored) + (
                     boost_alpha * target_boost

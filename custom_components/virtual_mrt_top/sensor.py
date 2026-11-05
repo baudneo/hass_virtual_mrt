@@ -174,35 +174,8 @@ class VirtualOperativeTempSensor(SensorEntity):
         return "mdi:home-thermometer"
 
     def _calculate_convective_weighting(self, v_air: float) -> float:
-        """
-        Calculates the Radiant Weighting factor (A) based on air speed (v_air)
-        using the simplified ASHRAE heat transfer coefficients (hc and hr).
-
-        The final formula is A = hr / (hc + hr).
-        """
-
-        # Ensure v_air is non-negative for math.pow
-        v_air = max(0.0, v_air)
-
-        # 1. Radiant Heat Transfer Coefficient (hr):
-        # Standard value for a seated, sedentary occupant (W/(m^2*K))
-        H_R = 4.7
-
-        # 2. Convective Heat Transfer Coefficient (hc):
-        # ASHRAE simplified formula for mixed (natural + forced) convection.
-        # This formula is hc = 3.1 + 5.6 * (v_air ^ 0.6) for air speed > 0.1 m/s.
-        if v_air <= 0.1:
-            # Use a slightly lower value for pure natural convection (still air)
-            H_C = 3.1
-        else:
-            # Apply air speed dependency (W/(m^2*K))
-            H_C = 3.1 + 5.6 * (v_air**0.6)
-
-        # 3. Final Radiant Weighting Factor (A):
-        # A = hr / (hc + hr)
-        radiant_weighting_A = H_R / (H_C + H_R)
-
-        return radiant_weighting_A
+        """Weight of MRT in operative temperature (ISO 7726 / ASHRAE 55 by air speed)."""
+        return mrt_weight_in_operative(v_air)
 
     @callback
     def _handle_update(self, event):

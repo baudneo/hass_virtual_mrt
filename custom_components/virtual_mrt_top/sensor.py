@@ -2041,7 +2041,10 @@ class VirtualMRTSensor(SensorEntity):
         hvac_speed_setting = self._get_float(self.id_hvac_speed, DEFAULT_AIR_SPEED_HVAC)
         climate_info = self._get_aggregate_climate_state()
 
-        if climate_info["is_active"] or climate_info["is_fan_active"]:
+        # Radiant systems (floor/radiator/ceiling) don't move air.
+        if not self.is_radiant and (
+            climate_info["is_active"] or climate_info["is_fan_active"]
+        ):
             potential_speeds.append(hvac_speed_setting)
 
         # --- Local Ceiling/Desk Fan ---

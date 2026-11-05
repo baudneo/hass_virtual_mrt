@@ -156,19 +156,18 @@ class Psychrometrics:
         return (b * alpha) / (a - alpha)
 
     @staticmethod
-    def calculate_frost_point(t_air: float, dew_point: float) -> float:
+    def calculate_frost_point(t_air: float, dew_point: float, rh: float | None = None) -> float:
         """
-        Calculate Frost Point (°C).
-        Above 0°C, Frost Point = Dew Point.
-        Below 0°C, Frost Point > Dew Point (saturation over ice).
+        Calculate Frost Point (°C): the temperature at which air saturates over ice.
+        Above 0 °C it equals the dew point; below 0 °C it is higher than the dew point.
         """
-        if dew_point > 0:
+        if dew_point >= 0:
             return dew_point
-        # Simple approximation: T_fp = T_dp + (T_air - T_dp) / 10 (Simplified, but actual formula is complex iterative)
-        # Better: Use a distinct formula for vapor pressure over ice.
-        # Ideally, just use T_dp for user simplicity unless strict physics required.
-        # Let's use the standard T_dp + Correction for sub-zero.
-        return dew_point - (0.1 * (t_air - dew_point))  # Heuristic adjustment
+        # Vapor pressure at the dew point (over water), then invert Magnus over ice.
+        e = 6.112 * math.exp((17.62 * dew_point) / (243.12 + dew_point))
+        ln_ratio = math.log(e / 6.112)
+        a, b = 22.46, 272.62
+        return (b * ln_ratio) / (a - ln_ratio)
 
     @staticmethod
     def calculate_enthalpy(
@@ -184,6 +183,8 @@ class Psychrometrics:
         # Humidity Ratio (W) calculation depends on Pressure!
         # W = 0.622 * e / (P - e)
         # If P is lower (altitude), W is higher.
+        if (pressure_hpa - vp_actual) <= 0:
+            return 1.006 * t_air
         w = 0.622 * vp_actual / (pressure_hpa - vp_actual)
 
         # H = 1.006*T + W*(2501 + 1.86*T)

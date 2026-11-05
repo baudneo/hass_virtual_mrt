@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
 import os
+import sys
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -130,6 +132,35 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
     return True
+
+
+async def async_reload_integration_code(hass: HomeAssistant) -> None:
+    """Hot reload: unload all entries, purge cached Python modules, set entries up again.
+
+    Lets edited .py files take effect without restarting Home Assistant.
+    Changes to manifest.json or new dependencies still need a restart.
+    """
+    entries = hass.config_entries.async_entries(DOMAIN)
+
+    for entry in entries:
+        await hass.config_entries.async_unload(entry.entry_id)
+
+    package = __name__.split(".")[0:2]
+    prefix = ".".join(package)  # custom_components.virtual_mrt_top
+    purged = [m for m in sys.modules if m == prefix or m.startswith(f"{prefix}.")]
+    for name in purged:
+        del sys.modules[name]
+
+    # Drop HA's loader caches so it re-imports the integration and its platforms
+    components = hass.data.get("components")
+    if isinstance(components, dict):
+        for key in [k for k in components if k == DOMAIN or k.endswith(f".{DOMAIN}")]:
+            components.pop(key, None)
+    importlib.invalidate_caches()
+    _LOGGER.warning("Purged %d modules for hot reload", len(purged))
+
+    for entry in entries:
+        await hass.config_entries.async_setup(entry.entry_id)
 
 
 async def async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

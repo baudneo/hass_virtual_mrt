@@ -376,6 +376,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         pass
 
     async def async_step_init(self, user_input=None):
+        """Show the options menu."""
+        return self.async_show_menu(
+            step_id="init", menu_options=["settings", "reload_code"]
+        )
+
+    async def async_step_reload_code(self, user_input=None):
+        """Hot reload the integration's Python code (dev helper)."""
+        if user_input is not None:
+            from . import async_reload_integration_code
+
+            await async_reload_integration_code(self.hass)
+            return self.async_abort(reason="code_reloaded")
+
+        return self.async_show_form(step_id="reload_code", data_schema=vol.Schema({}))
+
+    async def async_step_settings(self, user_input=None):
         """Manage the options."""
         # -----------------------------------------------------------
         # BRANCH 1: AGGREGATOR OPTIONS
@@ -397,7 +413,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
             is_hvac = self.config_entry.data.get(CONF_IS_HVAC_ZONE, False)
             return self.async_show_form(
-                step_id="init",
+                step_id="settings",
                 data_schema=vol.Schema(
                     {
                         vol.Required(CONF_IS_HVAC_ZONE, default=is_hvac): selector.BooleanSelector(),
@@ -706,4 +722,4 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
         }
 
-        return self.async_show_form(step_id="init", data_schema=vol.Schema(schema))
+        return self.async_show_form(step_id="settings", data_schema=vol.Schema(schema))

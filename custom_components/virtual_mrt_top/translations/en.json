@@ -80,8 +80,22 @@
     }
   },
   "options": {
+      "abort": {
+        "code_reloaded": "Integration code reloaded. All Virtual MRT entries were unloaded, modules purged, and set up again."
+      },
       "step": {
         "init": {
+          "title": "Virtual MRT/T_op Options",
+          "menu_options": {
+            "settings": "Edit settings",
+            "reload_code": "Reload integration code (developer hot reload)"
+          }
+        },
+        "reload_code": {
+          "title": "Reload integration code",
+          "description": "Unloads every Virtual MRT entry, purges the cached Python modules and sets them up again so edited code takes effect without restarting Home Assistant. Entities will briefly be unavailable."
+        },
+        "settings": {
           "title": "Configure Virtual MRT/T_op",
           "description": "Adjust core settings of the room.",
           "data": {

@@ -7,6 +7,6 @@
     "dependencies": [],
     "codeowners": ["@baudneo", "@Ecronika"],
     "requirements": [],
-    "iot_class": "local_polling",
+    "iot_class": "calculated",
     "config_flow": true
   }

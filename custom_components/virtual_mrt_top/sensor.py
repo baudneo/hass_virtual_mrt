@@ -2225,20 +2225,23 @@ class VirtualMRTSensor(SensorEntity):
             # If we have absolutely no data, we can't run the physics model safely.
             return
 
-        # --- Wind (Input) ---
-        wind_speed_ms = self._get_float(self.entity_wind_speed, None)
+        # --- Wind (Input) --- each source is converted using its own unit
+        wind_source = "dedicated_sensor"
+        wind_speed_ms = (
+            state_speed_ms(self.hass.states.get(self.entity_wind_speed))
+            if self.entity_wind_speed
+            else None
+        )
         if wind_speed_ms is None:
-            wind_speed_ms = self._get_attr(self.entity_weather, "wind_speed", 0.0)
-        weather_state_obj = self.hass.states.get(self.entity_weather)
-        if (
-                weather_state_obj
-                and weather_state_obj.attributes.get("wind_speed_unit") == "km/h"
-        ):
-            wind_speed_ms = wind_speed_ms / 3.6
+            wind_speed_ms = weather_speed_ms(weather_state_obj)
+            wind_source = "weather_entity"
+        if wind_speed_ms is None:
+            wind_speed_ms = 0.0
+            wind_source = "fallback"
         wind_speed_kmh = wind_speed_ms * 3.6
         self._attributes["wind_ms"] = round(wind_speed_ms, 2)
         self._attributes["wind_kmh"] = round(wind_speed_kmh, 2)
-        self._attributes["wind_source"] = "weather_entity"
+        self._attributes["wind_source"] = wind_source
 
         # We want the "Feels Like" temp because that drives heat loss better than dry bulb.
         # Try to calculate locally first (Most Accurate)

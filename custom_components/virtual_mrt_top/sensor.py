@@ -1877,22 +1877,11 @@ class VirtualMRTSensor(SensorEntity):
         if not sun_state:
             return 0.1  # Fallback to diffuse only
 
-        sun_azimuth = sun_state.attributes.get("azimuth", 180)
-
-        # Calculate difference between Sun and Window
-        diff = abs(sun_azimuth - self.orientation_degrees)
-        if diff > 180:
-            diff = 360 - diff
-
-        # If the sun is more than 90 degrees off-axis, only diffuse (skylight).
-        if diff >= 90:
-            return 0.1
-
-        # Calculate cosine of the angle
-        cosine_factor = math.cos(math.radians(diff))
-
-        # Result is Cosine + Diffuse Baseline (clamped to 1.0 max)
-        return min(1.0, cosine_factor + 0.1)
+        return solar_incidence_factor(
+            sun_state.attributes.get("azimuth", 180),
+            sun_state.attributes.get("elevation"),
+            self.orientation_degrees,
+        )
 
     def _get_shading_factor(self) -> float:
         """Calculates solar multiplier based on entity state (0.0 to 1.0)."""
@@ -2370,8 +2359,11 @@ class VirtualMRTSensor(SensorEntity):
                     )
         if rad_source != "sensor":
             cloud_factor = max(0, 1 - (0.9 * (cloud / 100.0)))
-            base = (90 * uv) if uv > 0 else (100 * day_fac)
-            est = base * cloud_factor * rain_mul * day_fac
+            if uv > 0:
+                # UV index already goes to zero at night; don't scale by daylight twice.
+                est = 90 * uv * cloud_factor * rain_mul
+            else:
+                est = 100 * day_fac * cloud_factor * rain_mul * day_fac
             rad_val = min(1000, est)
             rad_source = "heuristic"
         rad_final = max(0.0, rad_val)

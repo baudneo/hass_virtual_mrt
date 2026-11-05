@@ -19,6 +19,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event, async_call_later
 
 from .psychrometrics import Psychrometrics
+from .thermal import (
+    mrt_weight_in_operative,
+    smoothing_alpha,
+    sol_air_increment,
+    solar_incidence_factor,
+)
 from .units import (
     state_pressure_hpa,
     state_speed_ms,
@@ -2257,14 +2263,17 @@ class VirtualMRTSensor(SensorEntity):
         if t_app is not None:
             # In winter (t_out < t_air), wind chill dominates (use lower t_app)
             # In summer (t_out > t_air), heat index dominates (use higher t_app)
+            # (Summer: humidity/"feels like" doesn't heat a wall, so use dry-bulb here
+            # and add a sol-air increment for the sun once irradiance is known.)
             if t_out < t_air:
                 t_out_eff = min(t_out, t_app)
             else:
-                t_out_eff = max(t_out, t_app)
+                t_out_eff = t_out
         else:
             t_out_eff = t_out
             t_out_source = "dry_bulb_clamped"
 
+        self._attributes["outdoor_temp"] = round(t_out, 2)
         self._attributes["t_out_eff"] = round(t_out_eff, 2)
         self._attributes["t_out_eff_source"] = t_out_source
 
@@ -2404,6 +2413,14 @@ class VirtualMRTSensor(SensorEntity):
         # --- Incidence Factor ---
         incidence_factor = self._get_solar_incidence_factor()
         self._attributes["solar_incidence_factor"] = round(incidence_factor, 2)
+
+        # --- Summer: sunlit envelope runs hotter than outdoor air (sol-air) ---
+        if t_out >= t_air:
+            sol_air = sol_air_increment(rad_final, incidence_factor, wind_speed_ms)
+            t_out_eff += sol_air
+            self._attributes["t_out_eff"] = round(t_out_eff, 2)
+            self._attributes["sol_air_increment"] = round(sol_air, 2)
+            self._attributes["t_out_eff_source"] = "dry_bulb_plus_sol_air"
 
         # --- MRT Calculation ---
         term_loss = (

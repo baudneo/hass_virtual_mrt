@@ -137,6 +137,21 @@ class VirtualOperativeTempSensor(SensorEntity):
 
     translation_key = "operative_temperature"
 
+    # Attributes copied from the MRT sensor for live use; keep them out of the recorder
+    # (they are already stored on the MRT entity).
+    _unrecorded_attributes = frozenset(
+        {
+            "air_speed_ms_convective", "profile", "orientation", "wind_ms", "wind_kmh",
+            "wind_source", "t_out_eff_source", "hvac_action", "is_cooling", "is_heating",
+            "factor_f_out", "factor_f_win", "factor_k_loss", "factor_k_solar",
+            "thermal_alpha", "thermal_alpha_effective", "cloud_coverage", "cloud_source",
+            "uv_index", "uv_source", "rain_multiplier", "rain_source", "daylight_factor",
+            "radiation", "radiation_source", "shading_factor", "radiant_boost_current",
+            "solar_incidence_factor", "loss_term", "solar_term", "mrt_unclamped",
+            "mrt_clamped", "estimated_wall_surface_temp", "sol_air_increment",
+        }
+    )
+
     def __init__(
         self,
         hass: HomeAssistant,

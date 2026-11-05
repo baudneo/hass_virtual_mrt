@@ -656,15 +656,12 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
         return default
 
     def _update_value(self, t_air, rh, pressure):
-        # --- 1. TRY DIRECT MEASUREMENT (The Gold Standard) ---
-        if self.entity_cal_rh:
-            direct_rh = self._get_float_state(self.entity_cal_rh, None)
-            if direct_rh is not None:
-                self._attr_native_value = round(direct_rh, 1)
-                self._attributes["calculation_method"] = "measured_surface_humidity"
-                self._set_risk_level(direct_rh)
-                # We still calculate the rest for context attributes, but the State is real.
-                # (Optional: return early if you don't care about theoretical attributes)
+        # --- 1. DIRECT MEASUREMENT (The Gold Standard), if available right now ---
+        direct_rh = (
+            self._get_float_state(self.entity_cal_rh, None)
+            if self.entity_cal_rh
+            else None
+        )
 
         # --- 2. PREPARE DATA FOR CALCULATION ---
         # 1. Get Outdoor Temp (Priority: Sensor -> Weather -> Fallback)
@@ -721,17 +718,22 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
 
         surface_rh = min(100.0, max(0.0, surface_rh))
 
-        # --- 3. DECIDE FINAL OUTPUT ---
-        # If we didn't have a direct sensor, use the calculated value
-        if self._attr_native_value is None or self._attributes.get("calculation_method") != "measured_surface_humidity":
-            self._attr_native_value = round(surface_rh, 1)
-
-            if self.entity_wall_sensor and self._get_float_state(self.entity_wall_sensor, None) is not None:
+        # --- 3. DECIDE FINAL OUTPUT (re-evaluated every update, nothing sticky) ---
+        if direct_rh is not None:
+            final_rh = direct_rh
+            self._attributes["calculation_method"] = "measured_surface_humidity"
+        else:
+            final_rh = surface_rh
+            if (
+                self.entity_wall_sensor
+                and self._get_float_state(self.entity_wall_sensor, None) is not None
+            ):
                 self._attributes["calculation_method"] = "calculated_using_wall_temp_sensor"
             else:
                 self._attributes["calculation_method"] = "calculated_using_k_loss"
 
-            self._set_risk_level(surface_rh)
+        self._attr_native_value = round(final_rh, 1)
+        self._set_risk_level(final_rh)
 
         # Attributes
         self._attributes["outdoor_temp"] = t_out

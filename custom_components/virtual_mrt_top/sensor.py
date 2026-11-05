@@ -1448,10 +1448,10 @@ class VirtualZoneAggregator(SensorEntity):
 
             # --- Capture Outdoor Temp (for Stack Effect) ---
             if t_out is None:
-                if "t_out_eff" in state_obj.attributes:
-                    t_eff = state_obj.attributes["t_out_eff"]
                 if "outdoor_temp" in state_obj.attributes:
                     t_out = state_obj.attributes["outdoor_temp"]
+                if "t_out_eff" in state_obj.attributes:
+                    t_eff = state_obj.attributes["t_out_eff"]
 
             # --- CASE A: Standard Room (Operative Temp) ---
             if entry.translation_key == "operative_temperature":
@@ -1554,7 +1554,8 @@ class VirtualZoneAggregator(SensorEntity):
         elif t_out is not None:
             self._attributes["outdoor_temp"] = t_out
             self._attributes["outdoor_temp_source"] = "Standard Outdoor Temp"
-        t_out_candidate = t_eff or t_out
+        # Stack effect is driven by dry-bulb air density, not "feels like"
+        t_out_candidate = t_out if t_out is not None else t_eff
 
         def calculate_spread(temp_list):
             if not temp_list: return

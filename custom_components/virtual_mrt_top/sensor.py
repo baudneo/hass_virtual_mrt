@@ -931,7 +931,6 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
 
     _attr_name = "Wall Heat Flux"
     _attr_native_unit_of_measurement = "W/m²"
-    _attr_device_class = SensorDeviceClass.IRRADIANCE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 1
     translation_key = "heat_flux"
@@ -1039,7 +1038,8 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
         # 3. Calculate Opaque Wall Flux
         h_film, h_reason = self._calculate_dynamic_film_coefficient()
         delta_t_surface = t_air - t_surface
-        heat_flux_wall = max(0.0, h_film * delta_t_surface)
+        # Signed: positive = heat loss (outdoors colder), negative = heat gain (summer)
+        heat_flux_wall = h_film * delta_t_surface
 
         self._attr_native_value = round(heat_flux_wall, 1)
 
@@ -1063,7 +1063,7 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
 
         # B. Window Loss (Watts) = U * Area * DeltaT
         # Note: We use simple U-value physics here: Q = U * A * (T_in - T_out)
-        delta_t_air_out = max(0.0, t_air - t_out)
+        delta_t_air_out = t_air - t_out
         loss_window = self.window_u * area_win * delta_t_air_out
 
         total_watts = loss_opaque + loss_window
@@ -1078,20 +1078,35 @@ class VirtualHeatFluxSensor(VirtualPsychroBase):
         self._attributes["total_heat_loss_watts"] = round(total_watts, 1)
         self._attributes["loss_opaque_watts"] = round(loss_opaque, 1)
         self._attributes["loss_window_watts"] = round(loss_window, 1)
+        self._attributes["heat_flow_direction"] = (
+            "loss" if total_watts > 0 else "gain" if total_watts < 0 else "none"
+        )
         self._attributes["calculation_mode"] = calc_mode
         self._attributes["area_opaque_m2"] = round(area_opaque, 2)
         self._attributes["area_window_m2"] = round(area_win, 2)
 
-        # R-Value Estimation (Keep existing logic, applies to opaque wall)
-        if delta_t_air_out > 5.0 and heat_flux_wall > 0.5:
+        # R-Value Estimation: only meaningful with a measured wall surface temp
+        # (with a k_loss-derived surface temp it just reflects k_loss).
+        measured_surface = (
+            self.entity_wall_sensor
+            and self._get_float_state(self.entity_wall_sensor, None) is not None
+        )
+        if (
+            measured_surface
+            and abs(delta_t_air_out) > 5.0
+            and abs(heat_flux_wall) > 0.5
+            and heat_flux_wall * delta_t_air_out > 0
+        ):
             r_si = delta_t_air_out / heat_flux_wall
-            r_imperial = r_si * 5.678
-            u_val = 1.0 / r_si
-            self._attributes["estimated_r_value_imperial"] = round(r_imperial, 1)
+            self._attributes["estimated_r_value_imperial"] = round(r_si * 5.678, 1)
             self._attributes["estimated_rsi"] = round(r_si, 2)
-            self._attributes["estimated_u_value"] = round(u_val, 3)
+            self._attributes["estimated_u_value"] = round(1.0 / r_si, 3)
         else:
-            self._attributes["estimated_r_value_imperial"] = "N/A (Delta T too low)"
+            self._attributes.pop("estimated_rsi", None)
+            self._attributes.pop("estimated_u_value", None)
+            self._attributes["estimated_r_value_imperial"] = (
+                "N/A (needs wall surface sensor and |Delta T| > 5)"
+            )
 
 
 class VirtualPMVSensor(SensorEntity):

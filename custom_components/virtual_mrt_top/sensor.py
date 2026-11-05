@@ -1238,6 +1238,10 @@ class VirtualPMVSensor(SensorEntity):
 
             self._attr_native_value = round(pmv, 2)
             self._attributes["ppd_percent"] = round(ppd, 1)
+            self._attributes["iso7730_valid"] = (
+                10 <= t_air <= 30 and 10 <= t_mrt <= 40 and v_air <= 1.0
+                and 0.8 <= met <= 4.0 and clo <= 2.0
+            )
             self._attributes["clothing_clo"] = clo
             self._attributes["metabolic_met"] = met
 

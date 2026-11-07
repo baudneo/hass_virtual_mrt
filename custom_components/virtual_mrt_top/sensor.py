@@ -16,10 +16,17 @@ from homeassistant.const import UnitOfTemperature, CONF_NAME, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.event import async_track_state_change_event, async_call_later
 
 from .psychrometrics import Psychrometrics
 from .thermal import (
+    ADAPTIVE_MAX_RM,
+    ADAPTIVE_MIN_RM,
+    OutdoorRunningMean,
+    adaptive_comfort_temp,
+    adaptive_limits,
     mrt_weight_in_operative,
     smoothing_alpha,
     sol_air_increment,
@@ -106,7 +113,11 @@ async def async_setup_entry(
     # --- BRANCH 2: ROOM SENSOR SET ---
     mrt_sensor = VirtualMRTSensor(hass, entry, device_info)
     op_sensor = VirtualOperativeTempSensor(hass, entry, device_info, mrt_sensor)
-    entities = [mrt_sensor, op_sensor]
+    entities = [
+        mrt_sensor,
+        op_sensor,
+        VirtualAdaptiveComfortSensor(hass, entry, device_info, op_sensor),
+    ]
     if config.get(CONF_RH_SENSOR):
         entities.extend(
             [
@@ -1378,6 +1389,97 @@ class VirtualMoistureExcessSensor(VirtualPsychroBase):
             self._attributes["status"] = "Moderate Load (Occupied)"
         else:
             self._attributes["status"] = "High Load (Cooking/Shower/Humidifier)"
+
+
+class VirtualAdaptiveComfortSensor(RestoreEntity, SensorEntity):
+    """
+    Adaptive thermal comfort (ASHRAE 55 / EN 16798): the neutral operative temperature
+    for a naturally ventilated space from the running mean outdoor temperature.
+
+    Complements PMV, which over-predicts discomfort in warm weather without cooling.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Adaptive Comfort Temperature"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_suggested_display_precision = 1
+    _attr_icon = "mdi:sun-thermometer"
+
+    def __init__(self, hass, entry, device_info, op_sensor):
+        self.hass = hass
+        self._attr_unique_id = f"{entry.entry_id}_adaptive_comfort"
+        self._attr_device_info = device_info
+        self._op_sensor = op_sensor
+        self._mean = OutdoorRunningMean()
+        self._attributes = {}
+
+    @property
+    def extra_state_attributes(self):
+        return self._attributes
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is not None:
+            self._mean.restore(
+                {
+                    "rm": last.attributes.get("running_mean_outdoor_c"),
+                    "day": last.attributes.get("running_mean_day"),
+                }
+            )
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass, [self._op_sensor.entity_id], self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self, event):
+        op_state = self.hass.states.get(self._op_sensor.entity_id)
+        if op_state is None or op_state.state in ("unknown", "unavailable"):
+            self._attr_native_value = None
+            self.async_write_ha_state()
+            return
+        attrs = op_state.attributes
+        try:
+            t_op = float(op_state.state)
+            t_out = float(attrs.get("outdoor_temp"))
+        except (TypeError, ValueError):
+            return
+
+        self._mean.update(dt_util.now().toordinal(), time.time(), t_out)
+        t_rm = self._mean.value
+        if t_rm is None:
+            return
+
+        t_comf = adaptive_comfort_temp(t_rm)
+        mechanically_cooled = bool(attrs.get("is_cooling"))
+        in_range = ADAPTIVE_MIN_RM <= t_rm <= ADAPTIVE_MAX_RM
+        applicable = in_range and not mechanically_cooled
+
+        self._attr_native_value = round(t_comf, 2)
+        self._attributes = {
+            "running_mean_outdoor_c": None if self._mean.rm is None else round(self._mean.rm, 2),
+            "running_mean_day": self._mean.day,
+            "running_mean_in_use_c": round(t_rm, 2),
+            "running_mean_seeding": self._mean.rm is None,
+            "operative_temp": round(t_op, 2),
+            "deviation_c": round(t_op - t_comf, 2),
+            "applicable": applicable,
+            "applicability_note": (
+                "ok"
+                if applicable
+                else "mechanical cooling active" if mechanically_cooled
+                else "running mean outdoor temp outside 10-33.5 C"
+            ),
+            **adaptive_limits(t_comf),
+        }
+        lim = self._attributes
+        self._attributes["within_90"] = lim["acceptable_90_low"] <= t_op <= lim["acceptable_90_high"]
+        self._attributes["within_80"] = lim["acceptable_80_low"] <= t_op <= lim["acceptable_80_high"]
+        self.async_write_ha_state()
 
 
 class VirtualZoneAggregator(SensorEntity):

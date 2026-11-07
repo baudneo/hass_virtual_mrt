@@ -70,3 +70,93 @@ def mrt_weight_in_operative(v_air: float) -> float:
     if v_air < 0.6:
         return 0.4
     return 0.3
+
+
+# --- Adaptive comfort (ASHRAE 55 adaptive model / EN 16798 running mean) ---
+
+ADAPTIVE_MIN_RM = 10.0
+ADAPTIVE_MAX_RM = 33.5
+RUNNING_MEAN_ALPHA = 0.8  # EN 16798-1 weighting of previous days
+
+
+def adaptive_comfort_temp(t_running_mean: float) -> float:
+    """Neutral operative temperature (C) from the prevailing outdoor temperature."""
+    return 0.31 * t_running_mean + 17.8
+
+
+def adaptive_limits(t_comf: float) -> dict[str, float]:
+    """ASHRAE 55 acceptability limits: 90% (+-2.5 K) and 80% (+-3.5 K)."""
+    return {
+        "acceptable_90_low": round(t_comf - 2.5, 2),
+        "acceptable_90_high": round(t_comf + 2.5, 2),
+        "acceptable_80_low": round(t_comf - 3.5, 2),
+        "acceptable_80_high": round(t_comf + 3.5, 2),
+    }
+
+
+class OutdoorRunningMean:
+    """
+    Exponentially weighted running mean of daily mean outdoor temperature.
+
+    Trm_today = (1 - a) * T_yesterday_mean + a * Trm_yesterday  (a = 0.8).
+    Daily means are time-weighted from the samples fed to `update`.
+    """
+
+    MAX_GAP_S = 6 * 3600  # don't let one stale sample dominate a whole day
+
+    def __init__(self, alpha: float = RUNNING_MEAN_ALPHA) -> None:
+        self.alpha = alpha
+        self.rm: float | None = None
+        self.day: int | None = None
+        self._sum = 0.0
+        self._weight = 0.0
+        self._last_ts: float | None = None
+        self._last_temp: float | None = None
+
+    def update(self, day: int, ts: float, temp: float) -> None:
+        """Feed an outdoor temperature sample (`day` is any per-day key, e.g. ordinal)."""
+        if self.day is None:
+            self.day = day
+        elif day != self.day:
+            self._close_day()
+            self.day = day
+            self._sum = 0.0
+            self._weight = 0.0
+            # Don't attribute the overnight gap to the new day
+            self._last_ts = None
+            self._last_temp = None
+        if self._last_ts is not None and self._last_temp is not None:
+            dt = min(ts - self._last_ts, self.MAX_GAP_S)
+            if dt > 0:
+                self._sum += self._last_temp * dt
+                self._weight += dt
+        self._last_ts = ts
+        self._last_temp = temp
+
+    def _today_mean(self) -> float | None:
+        if self._weight > 0:
+            return self._sum / self._weight
+        return self._last_temp
+
+    def _close_day(self) -> None:
+        mean = self._today_mean()
+        if mean is None:
+            return
+        self.rm = mean if self.rm is None else (1 - self.alpha) * mean + self.alpha * self.rm
+
+    @property
+    def value(self) -> float | None:
+        """Best current estimate (falls back to today's mean while seeding)."""
+        return self.rm if self.rm is not None else self._today_mean()
+
+    def as_dict(self) -> dict:
+        return {"rm": self.rm, "day": self.day}
+
+    def restore(self, data: dict) -> None:
+        try:
+            rm = data.get("rm")
+            self.rm = float(rm) if rm is not None else None
+            day = data.get("day")
+            self.day = int(day) if day is not None else None
+        except (TypeError, ValueError):
+            self.rm, self.day = None, None

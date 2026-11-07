@@ -47,3 +47,43 @@ def test_sol_air_zero_without_sun_and_capped():
 @pytest.mark.parametrize("v,w", [(0.1, 0.5), (0.3, 0.4), (0.8, 0.3), (2.0, 0.3)])
 def test_operative_weight_iso7726(v, w):
     assert mrt_weight_in_operative(v) == w
+
+
+from custom_components.virtual_mrt_top.thermal import (  # noqa: E402
+    OutdoorRunningMean,
+    adaptive_comfort_temp,
+    adaptive_limits,
+)
+
+
+def test_adaptive_comfort_temp_ashrae55():
+    assert adaptive_comfort_temp(20) == pytest.approx(24.0)
+    assert adaptive_comfort_temp(10) == pytest.approx(20.9)
+    lim = adaptive_limits(24.0)
+    assert lim["acceptable_90_high"] == 26.5 and lim["acceptable_80_low"] == 20.5
+
+
+def test_running_mean_seeds_from_today_then_weights_days():
+    m = OutdoorRunningMean()
+    assert m.value is None
+    # day 1: steady 10 C for 2 hours
+    m.update(1, 0, 10)
+    m.update(1, 3600, 10)
+    m.update(1, 7200, 10)
+    assert m.value == pytest.approx(10)       # seeding from today's mean
+    assert m.rm is None
+    # day 2 begins: day 1 closes -> rm = 10
+    m.update(2, 86400, 20)
+    assert m.rm == pytest.approx(10)
+    m.update(2, 86400 + 3600, 20)
+    # day 3: day 2 (mean 20) closes -> rm = 0.2*20 + 0.8*10 = 12
+    m.update(3, 2 * 86400, 20)
+    assert m.rm == pytest.approx(12)
+
+
+def test_running_mean_restore_roundtrip():
+    m = OutdoorRunningMean()
+    m.restore({"rm": 15.5, "day": 100})
+    assert m.value == 15.5 and m.as_dict() == {"rm": 15.5, "day": 100}
+    m.restore({"rm": "garbage", "day": None})
+    assert m.rm is None

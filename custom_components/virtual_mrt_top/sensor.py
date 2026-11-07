@@ -624,6 +624,7 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
         self.entity_weather = entry.data[CONF_WEATHER_ENTITY]
         self.entity_wall_sensor = entry.data.get(CONF_WALL_SURFACE_SENSOR)
         self.entity_cal_rh = entry.data.get(CONF_CALIBRATION_RH_SENSOR)  # <--- New Input
+        self._high_rh_since: float | None = None  # monotonic ts when RH >= 80% began
         self.entity_outdoor_temp = entry.data.get(CONF_OUTDOOR_TEMP_SENSOR)
 
     async def async_added_to_hass(self):
@@ -741,6 +742,24 @@ class VirtualMoldRiskSensor(VirtualPsychroBase):
 
         self._attr_native_value = round(final_rh, 1)
         self._set_risk_level(final_rh)
+
+        # Mold needs *sustained* high RH (rule of thumb: >= 80% for about a day)
+        now = time.monotonic()
+        if final_rh >= 80.0:
+            if self._high_rh_since is None:
+                self._high_rh_since = now
+            hours_high = (now - self._high_rh_since) / 3600.0
+        else:
+            self._high_rh_since = None
+            hours_high = 0.0
+        self._attributes["sustained_high_rh_hours"] = round(hours_high, 2)
+        self._attributes["growth_likely"] = hours_high >= 24.0
+
+        # Condensation margin: how far the surface is above the room air dew point.
+        # <= 0 means liquid water forms (cold pipes/windows/basement walls in summer too).
+        dew_point = Psychrometrics.calculate_dew_point(t_air, rh)
+        self._attributes["condensation_margin_c"] = round(t_surface - dew_point, 1)
+        self._attributes["condensation_risk"] = (t_surface - dew_point) <= 0.0
 
         # Attributes
         self._attributes["outdoor_temp"] = t_out

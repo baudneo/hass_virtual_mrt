@@ -107,3 +107,28 @@ def test_radiant_cooling_uses_cooling_setpoint_and_cools():
     # chilled surface (18) below room air (21) -> negative boost, not the heating setpoint
     assert s.extra_state_attributes["radiant_boost_current"] < 0
 
+
+def test_mold_sustained_high_rh_and_condensation_margin():
+    from custom_components.virtual_mrt_top.sensor import VirtualMoldRiskSensor
+
+    st = {
+        "weather.home": State("weather.home", "sunny", {"temperature": 30, "temperature_unit": "°C"}),
+        "sensor.wall": State("sensor.wall", "14", {"unit_of_measurement": "°C"}),
+    }
+    data = {
+        "air_temp_source": "sensor.air", "rh_sensor": "sensor.rh",
+        "weather_entity": "weather.home", "wall_surface_sensor": "sensor.wall",
+    }
+    entry = SimpleNamespace(data=data, entry_id="e1")
+    hass = SimpleNamespace(states=SimpleNamespace(get=lambda eid: st.get(eid)),
+                           config=SimpleNamespace(elevation=0))
+    m = VirtualMoldRiskSensor(hass, entry, {})
+    m._attributes = {}
+    m._update_value(26.0, 70.0, 1013.0)   # dew point ~20 C > wall 14 C
+    assert m._attributes["condensation_risk"] is True
+    assert m._attributes["condensation_margin_c"] < 0
+    assert m.native_value == 100.0
+    assert m._attributes["sustained_high_rh_hours"] == 0.0
+    m._high_rh_since -= 25 * 3600
+    m._update_value(26.0, 70.0, 1013.0)
+    assert m._attributes["growth_likely"] is True

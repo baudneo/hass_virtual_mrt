@@ -6,7 +6,7 @@ from typing import List
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME, Platform
+from homeassistant.const import CONF_NAME
 from homeassistant.components.number.const import SERVICE_SET_VALUE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -24,11 +24,6 @@ from .const import (
     STORAGE_VERSION,
     STORE_KEY_CUSTOM,
     STORE_KEY_SAVED,
-    CONF_CLIMATE_ENTITY,
-    CONF_WINDOW_STATE_SENSOR,
-    CONF_DOOR_STATE_SENSOR,
-    CONF_FAN_ENTITY,
-    CONF_MANUAL_AIR_SPEED,
     CONF_RADIANT_TYPE,
     RADIANT_TYPES,
     CONF_IS_RADIANT,
@@ -123,12 +118,6 @@ class VirtualProfileSelect(SelectEntity):
         self.id_k_loss = None
         self.id_k_solar = None
 
-        self.id_climate = None
-        self.id_fan = None
-        self.id_window = None
-        self.id_door = None
-        self.id_manual_speed = None
-
         self._is_updating = False
 
     async def async_added_to_hass(self):
@@ -150,26 +139,6 @@ class VirtualProfileSelect(SelectEntity):
         )
         self.id_k_solar = registry.async_get_entity_id(
             "number", DOMAIN, f"{self._entry.entry_id}_k_solar"
-        )
-
-        self.id_climate = registry.async_get_entity_id(
-            Platform.CLIMATE, DOMAIN, f"{self._entry.entry_id}_{CONF_CLIMATE_ENTITY}"
-        )
-        self.id_fan = registry.async_get_entity_id(
-            Platform.FAN, DOMAIN, f"{self._entry.entry_id}_{CONF_FAN_ENTITY}"
-        )
-        self.id_window = registry.async_get_entity_id(
-            Platform.BINARY_SENSOR,
-            DOMAIN,
-            f"{self._entry.entry_id}_{CONF_WINDOW_STATE_SENSOR}",
-        )
-        self.id_door = registry.async_get_entity_id(
-            Platform.BINARY_SENSOR,
-            DOMAIN,
-            f"{self._entry.entry_id}_{CONF_DOOR_STATE_SENSOR}",
-        )
-        self.id_manual_speed = registry.async_get_entity_id(
-            "number", DOMAIN, f"{self._entry.entry_id}_{CONF_MANUAL_AIR_SPEED}"
         )
 
         number_entities = [
@@ -325,39 +294,26 @@ class VirtualProfileSelect(SelectEntity):
             return
 
         self._is_updating = True
+        try:
+            if preset_data:
+                # Set all number entities to the selected profile's values
+                for entity_id, value in zip(
+                    (self.id_f_out, self.id_f_win, self.id_k_loss, self.id_k_solar),
+                    preset_data,
+                ):
+                    await self.hass.services.async_call(
+                        "number",
+                        SERVICE_SET_VALUE,
+                        {"entity_id": entity_id, "value": value},
+                        blocking=True,
+                    )
 
-        if preset_data:
-            # Set all number entities to the selected profile's values
-            await self.hass.services.async_call(
-                "number",
-                SERVICE_SET_VALUE,
-                {"entity_id": self.id_f_out, "value": preset_data[0]},
-                blocking=True,
-            )
-            await self.hass.services.async_call(
-                "number",
-                SERVICE_SET_VALUE,
-                {"entity_id": self.id_f_win, "value": preset_data[1]},
-                blocking=True,
-            )
-            await self.hass.services.async_call(
-                "number",
-                SERVICE_SET_VALUE,
-                {"entity_id": self.id_k_loss, "value": preset_data[2]},
-                blocking=True,
-            )
-            await self.hass.services.async_call(
-                "number",
-                SERVICE_SET_VALUE,
-                {"entity_id": self.id_k_solar, "value": preset_data[3]},
-                blocking=True,
-            )
-
-        # Update our own state to the newly selected option
-        self._attr_current_option = option
-        self.async_write_ha_state()
-
-        self._is_updating = False
+            # Update our own state to the newly selected option
+            self._attr_current_option = option
+            self.async_write_ha_state()
+        finally:
+            # Never leave the change-listener muted if a service call fails
+            self._is_updating = False
 
     async def async_update_options_and_select(self, new_option_name: str) -> None:
         """

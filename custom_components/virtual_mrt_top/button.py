@@ -179,12 +179,11 @@ class SaveProfileButton(BaseProfileButton):
             raise HomeAssistantError(
                 f"Profile limit reached ({MAX_SAVED_PROFILES}). Delete old profiles to save a new one."
             )
-            return
 
         # Sanity check
         if not (0.0 <= values[1] <= 1.0):  # f_win (index 1)
             _LOGGER.warning("Saving profile with unusual f_win: %s", values[1])
-        if not (0.0 <= values[2] <= 2.0):  # k_loss (index 2)
+        if not (0.0 <= values[2] <= 1.0):  # k_loss (index 2), matches number max
             _LOGGER.warning("Saving profile with unusual k_loss: %s", values[2])
 
         # --- Save to Store ---

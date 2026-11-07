@@ -15,6 +15,11 @@
   - MRT/T_op go `unknown` when air or outdoor temperature is unavailable instead of holding a stale value
   - PMV exposes `iso7730_valid`
 - Operative temp no longer records ~35 duplicated attributes to the database; `iot_class` is now `calculated`
+- **Cooling season (round 2)**
+  - radiant systems get a separate *cooling* surface target (default 18 C); previously a chilled slab used the heating setpoint and *warmed* the room in the model
+  - new **Adaptive Comfort Temperature** sensor (ASHRAE 55 adaptive model, EN 16798 running-mean outdoor temp, 80/90% limits, restored across restarts); only flagged applicable without active mechanical cooling
+  - mold risk: `condensation_margin_c` / `condensation_risk` (surface vs room dew point) and `sustained_high_rh_hours` / `growth_likely` (>= 80% RH for 24 h)
+  - profile select no longer leaves its change-listener muted if a service call fails; removed dead registry lookups; fixed unreachable code and an inconsistent k_loss range check in the save-profile button
 - Developer: options flow has a *Reload integration code* hot-reload; removed ~700 lines of dead code; pure math moved to `psychrometrics.py`, `thermal.py`, `units.py`; added `tests/`
 # 0.2.4
 - Add new **advanced** inputs to calculate realistic **aggregator** heat loss and enhance **room** mold risk by estimating window surface temperature.

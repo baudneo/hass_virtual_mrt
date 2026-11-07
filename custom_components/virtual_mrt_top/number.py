@@ -14,8 +14,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
-from . import CONF_IS_RADIANT
 from .const import (
+    CONF_IS_RADIANT,
+    CONF_RADIANT_COOLING_SURFACE_TEMP,
     DOMAIN,
     CONF_ROOM_PROFILE,
     ROOM_PROFILES,
@@ -124,18 +125,27 @@ async def async_setup_entry(
         ),
     ]
     if config.get(CONF_IS_RADIANT, False):
-        (
-            entities.append(
-                VirtualSurfaceTargetTempNumber(
-                    entry,
-                    device_info,
-                    CONF_RADIANT_SURFACE_TEMP,
-                    "radiant_surface_temp",
-                    26.0,
-                    0.0,
-                    85.0,
-                )
-            ),
+        entities.append(
+            VirtualSurfaceTargetTempNumber(
+                entry,
+                device_info,
+                CONF_RADIANT_SURFACE_TEMP,
+                "radiant_surface_temp",
+                26.0,
+                0.0,
+                85.0,
+            )
+        )
+        entities.append(
+            VirtualSurfaceTargetTempNumber(
+                entry,
+                device_info,
+                CONF_RADIANT_COOLING_SURFACE_TEMP,
+                "radiant_cooling_surface_temp",
+                18.0,
+                5.0,
+                30.0,
+            )
         )
     async_add_entities(entities)
 

@@ -92,3 +92,18 @@ def test_missing_air_temp_goes_unknown():
     st["sensor.air"] = State("sensor.air", "unavailable")
     s._update_calc()
     assert s.native_value is None
+
+
+def test_radiant_cooling_uses_cooling_setpoint_and_cools():
+    climate = State("climate.slab", "cool", {"hvac_action": "cooling"})
+    st = _states(32, **{
+        "climate.slab": climate,
+        "number.id_radiant_temp": State("number.id_radiant_temp", "26"),
+        "number.id_radiant_cool_temp": State("number.id_radiant_cool_temp", "18"),
+        "number.id_radiant_type": State("number.id_radiant_type", "0"),
+    })
+    s = _make(st, radiant=True, climate=["climate.slab"])
+    s._update_calc()
+    # chilled surface (18) below room air (21) -> negative boost, not the heating setpoint
+    assert s.extra_state_attributes["radiant_boost_current"] < 0
+

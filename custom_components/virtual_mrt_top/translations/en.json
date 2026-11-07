@@ -224,6 +224,10 @@
         "name": "Radiant Surface Target Temperature",
         "description": "The target temperature of the emitting surface (e.g., Floor Temp or Radiator Water Temp) when heating."
       },
+      "radiant_cooling_surface_temp": {
+        "name": "Radiant Cooling Surface Target Temperature",
+        "description": "The target temperature of the emitting surface (e.g., chilled slab or ceiling panel) when cooling."
+      },
       "hvac_air_speed": {
         "name": "HVAC Airflow Speed"
       },

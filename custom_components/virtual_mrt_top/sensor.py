@@ -57,6 +57,7 @@ from .const import (
     RADIANT_TYPES,
     CONF_RADIANT_SURFACE_TEMP,
     CONF_RADIANT_TYPE,
+    CONF_RADIANT_COOLING_SURFACE_TEMP,
     ORIENTATION_DEGREES,
     CONF_RH_SENSOR,
     CONF_WALL_SURFACE_SENSOR,
@@ -1706,6 +1707,7 @@ class VirtualMRTSensor(SensorEntity):
         self.id_hvac_speed = None
         self.id_radiant_type = None
         self.id_radiant_temp = None
+        self.id_radiant_cool_temp = None
 
         self._min_update_interval = self._config.get(CONF_MIN_UPDATE_INTERVAL, 30.0)
         self._last_update_time = 0.0
@@ -1752,6 +1754,11 @@ class VirtualMRTSensor(SensorEntity):
             self.id_radiant_temp = registry.async_get_entity_id(
                 "number", DOMAIN, f"{self._entry.entry_id}_{CONF_RADIANT_SURFACE_TEMP}"
             )
+            self.id_radiant_cool_temp = registry.async_get_entity_id(
+                "number",
+                DOMAIN,
+                f"{self._entry.entry_id}_{CONF_RADIANT_COOLING_SURFACE_TEMP}",
+            )
             self.id_radiant_type = registry.async_get_entity_id(
                 "select", DOMAIN, f"{self._entry.entry_id}_{CONF_RADIANT_TYPE}"
             )
@@ -1796,6 +1803,7 @@ class VirtualMRTSensor(SensorEntity):
             self.id_manual_speed,
             self.id_hvac_speed,
             self.id_radiant_temp,
+            self.id_radiant_cool_temp,
         ]:
             if num_id:
                 entities_to_track.append(num_id)
@@ -2385,7 +2393,12 @@ class VirtualMRTSensor(SensorEntity):
         # --- CALCULATE RADIANT BOOST / COOLING ---
         new_boost = 0.0
         if self.is_radiant:
-            surface_setpoint = self._get_float(self.id_radiant_temp, 24.0)
+            # Heating and cooling have separate surface setpoints (a chilled slab is
+            # far below room temp while a heated one is above it).
+            if climate_info["is_cooling"]:
+                surface_setpoint = self._get_float(self.id_radiant_cool_temp, 18.0)
+            else:
+                surface_setpoint = self._get_float(self.id_radiant_temp, 24.0)
             type_key = "high_mass"
             if self.id_radiant_type:
                 type_state = self.hass.states.get(self.id_radiant_type)
